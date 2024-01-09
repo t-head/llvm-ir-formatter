@@ -447,6 +447,46 @@ GlobalVariable::GlobalVariable(Module &M, Type *Ty, bool constant,
     M.insertGlobalVariable(this);
 }
 
+// Reserve Types
+
+GlobalVariable::GlobalVariable(Type *Ty, bool constant, LinkageTypes Link,
+                               bool ReserveType,
+                               Constant *InitVal, const Twine &Name,
+                               ThreadLocalMode TLMode, unsigned AddressSpace,
+                               bool isExternallyInitialized)
+    : GlobalObject(Ty, Value::GlobalVariableVal,
+                   OperandTraits<GlobalVariable>::op_begin(this),
+                   InitVal != nullptr, Link, Name, ReserveType, AddressSpace),
+      isConstantGlobal(constant),
+      isExternallyInitializedConstant(isExternallyInitialized) {
+  assert(!Ty->isFunctionTy() && PointerType::isValidElementType(Ty) &&
+         "invalid type for global variable");
+  setThreadLocalMode(TLMode);
+  if (InitVal) {
+    assert(InitVal->getType() == Ty &&
+           "Initializer should be the same type as the GlobalVariable!");
+    Op<0>() = InitVal;
+  }
+}
+
+GlobalVariable::GlobalVariable(Module &M, Type *Ty, bool constant,
+                               LinkageTypes Link, Constant *InitVal,
+                               bool ReserveType,
+                               const Twine &Name, GlobalVariable *Before,
+                               ThreadLocalMode TLMode,
+                               std::optional<unsigned> AddressSpace,
+                               bool isExternallyInitialized)
+    : GlobalVariable(Ty, constant, Link, ReserveType, InitVal, Name, TLMode,
+                     AddressSpace
+                         ? *AddressSpace
+                         : M.getDataLayout().getDefaultGlobalsAddressSpace(),
+                     isExternallyInitialized) {
+  if (Before)
+    Before->getParent()->insertGlobalVariable(Before->getIterator(), this);
+  else
+    M.insertGlobalVariable(this);
+}
+
 void GlobalVariable::removeFromParent() {
   getParent()->removeGlobalVariable(this);
 }

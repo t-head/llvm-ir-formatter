@@ -518,6 +518,7 @@ public:
   /// PointerType::get(Foo, AddrSpace).
   /// TODO: Remove this after opaque pointer transition is complete.
   PointerType *getPointerTo(unsigned AddrSpace = 0) const;
+  PointerType *getPointerTo(unsigned AddrSpace, bool ReserveType) const;
 
 private:
   /// Derived types like structures and arrays are sized iff all of the members

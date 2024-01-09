@@ -397,6 +397,36 @@ static unsigned computeAddrSpace(unsigned AddrSpace, Module *M) {
 }
 
 Function::Function(FunctionType *Ty, LinkageTypes Linkage, unsigned AddrSpace,
+                   bool ReserveType, const Twine &name, Module *ParentModule)
+    : GlobalObject(Ty, Value::FunctionVal,
+                   OperandTraits<Function>::op_begin(this), 0, Linkage, name,
+                   ReserveType, computeAddrSpace(AddrSpace, ParentModule)),
+      NumArgs(Ty->getNumParams()) {
+  assert(FunctionType::isValidReturnType(getReturnType()) &&
+         "invalid return type");
+  setGlobalObjectSubClassData(0);
+
+  // We only need a symbol table for a function if the context keeps value names
+  if (!getContext().shouldDiscardValueNames())
+    SymTab = std::make_unique<ValueSymbolTable>(NonGlobalValueMaxNameSize);
+
+  // If the function has arguments, mark them as lazily built.
+  if (Ty->getNumParams())
+    setValueSubclassData(1);   // Set the "has lazy arguments" bit.
+
+  if (ParentModule)
+    ParentModule->getFunctionList().push_back(this);
+
+  HasLLVMReservedName = getName().startswith("llvm.");
+  // Ensure intrinsics have the right parameter attributes.
+  // Note, the IntID field will have been set in Value::setName if this function
+  // name is a valid intrinsic ID.
+  if (IntID)
+    setAttributes(Intrinsic::getAttributes(getContext(), IntID));
+}
+
+
+Function::Function(FunctionType *Ty, LinkageTypes Linkage, unsigned AddrSpace,
                    const Twine &name, Module *ParentModule)
     : GlobalObject(Ty, Value::FunctionVal,
                    OperandTraits<Function>::op_begin(this), 0, Linkage, name,

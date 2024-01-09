@@ -85,6 +85,19 @@ protected:
     setName(Name);
   }
 
+  GlobalValue(Type *Ty, ValueTy VTy, Use *Ops, unsigned NumOps,
+              LinkageTypes Linkage, const Twine &Name,
+              bool ReserveType, unsigned AddressSpace)
+      : Constant(PointerType::get(Ty, AddressSpace, ReserveType), VTy, Ops, NumOps),
+        ValueType(Ty), Visibility(DefaultVisibility),
+        UnnamedAddrVal(unsigned(UnnamedAddr::None)),
+        DllStorageClass(DefaultStorageClass), ThreadLocal(NotThreadLocal),
+        HasLLVMReservedName(false), IsDSOLocal(false), HasPartition(false),
+        HasSanitizerMetadata(false) {
+    setLinkage(Linkage);
+    setName(Name);
+  }
+
   Type *ValueType;
 
   static const unsigned GlobalValueSubClassDataBits = 15;

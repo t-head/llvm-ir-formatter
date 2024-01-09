@@ -1105,6 +1105,31 @@ public:
     return PtrTy;
   }
 
+  /// Returns the pointer type returned by the GEP
+  /// instruction, which may be a vector of pointers.
+  static Type *getGEPReturnType(Type *ElTy, Value *Ptr,
+                                ArrayRef<Value *> IdxList, bool ReserveType) {
+    PointerType *OrigPtrTy = cast<PointerType>(Ptr->getType()->getScalarType());
+    unsigned AddrSpace = OrigPtrTy->getAddressSpace();
+    Type *ResultElemTy = checkGEPType(getIndexedType(ElTy, IdxList));
+    Type *PtrTy = OrigPtrTy->isOpaque()
+      ? PointerType::get(OrigPtrTy->getContext(), AddrSpace)
+      : PointerType::get(ResultElemTy, AddrSpace, ReserveType);
+    // Vector GEP
+    if (auto *PtrVTy = dyn_cast<VectorType>(Ptr->getType())) {
+      ElementCount EltCount = PtrVTy->getElementCount();
+      return VectorType::get(PtrTy, EltCount);
+    }
+    for (Value *Index : IdxList)
+      if (auto *IndexVTy = dyn_cast<VectorType>(Index->getType())) {
+        ElementCount EltCount = IndexVTy->getElementCount();
+        return VectorType::get(PtrTy, EltCount);
+      }
+    // Scalar GEP
+    return PtrTy;
+  }
+
+
   unsigned getNumIndices() const {  // Note: always non-negative
     return getNumOperands() - 1;
   }

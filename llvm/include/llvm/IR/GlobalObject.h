@@ -46,6 +46,12 @@ protected:
       : GlobalValue(Ty, VTy, Ops, NumOps, Linkage, Name, AddressSpace) {
     setGlobalValueSubClassData(0);
   }
+  GlobalObject(Type *Ty, ValueTy VTy, Use *Ops, unsigned NumOps,
+               LinkageTypes Linkage, const Twine &Name, bool ReserveType,
+               unsigned AddressSpace = 0)
+      : GlobalValue(Ty, VTy, Ops, NumOps, Linkage, Name, ReserveType, AddressSpace) {
+    setGlobalValueSubClassData(0);
+  }
   ~GlobalObject();
 
   Comdat *ObjComdat = nullptr;

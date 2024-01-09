@@ -2394,7 +2394,7 @@ Constant *ConstantExpr::getCompare(unsigned short Predicate, Constant *C1,
 Constant *ConstantExpr::getGetElementPtr(Type *Ty, Constant *C,
                                          ArrayRef<Value *> Idxs, bool InBounds,
                                          std::optional<unsigned> InRangeIndex,
-                                         Type *OnlyIfReducedTy) {
+                                         Type *OnlyIfReducedTy, bool ReserveType) {
   PointerType *OrigPtrTy = cast<PointerType>(C->getType()->getScalarType());
   assert(Ty && "Must specify element type");
   assert(isSupportedGetElementPtr(Ty) && "Element type is unsupported!");
@@ -2410,7 +2410,7 @@ Constant *ConstantExpr::getGetElementPtr(Type *Ty, Constant *C,
   unsigned AS = OrigPtrTy->getAddressSpace();
   Type *ReqTy = OrigPtrTy->isOpaque()
       ? PointerType::get(OrigPtrTy->getContext(), AS)
-      : DestTy->getPointerTo(AS);
+      : DestTy->getPointerTo(AS, ReserveType);
 
   auto EltCount = ElementCount::getFixed(0);
   if (VectorType *VecTy = dyn_cast<VectorType>(C->getType()))

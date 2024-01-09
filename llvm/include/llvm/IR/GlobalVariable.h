@@ -61,6 +61,22 @@ public:
                  ThreadLocalMode = NotThreadLocal,
                  std::optional<unsigned> AddressSpace = std::nullopt,
                  bool isExternallyInitialized = false);
+
+  /// GlobalVariable ctor - If a parent module is specified, the global is
+  /// automatically inserted into the end of the specified modules global list.
+  GlobalVariable(Type *Ty, bool isConstant, LinkageTypes Linkage, bool ReserveType,
+                 Constant *Initializer = nullptr, const Twine &Name = "",
+                 ThreadLocalMode = NotThreadLocal, unsigned AddressSpace = 0,
+                 bool isExternallyInitialized = false);
+  /// GlobalVariable ctor - This creates a global and inserts it before the
+  /// specified other global.
+  GlobalVariable(Module &M, Type *Ty, bool isConstant, LinkageTypes Linkage,
+                 Constant *Initializer, bool ReserveType, const Twine &Name = "",
+                 GlobalVariable *InsertBefore = nullptr,
+                 ThreadLocalMode = NotThreadLocal,
+                 std::optional<unsigned> AddressSpace = std::nullopt,
+                 bool isExternallyInitialized = false);
+
   GlobalVariable(const GlobalVariable &) = delete;
   GlobalVariable &operator=(const GlobalVariable &) = delete;
 

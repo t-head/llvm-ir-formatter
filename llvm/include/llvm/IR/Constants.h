@@ -1246,7 +1246,7 @@ public:
   getGetElementPtr(Type *Ty, Constant *C, ArrayRef<Value *> IdxList,
                    bool InBounds = false,
                    std::optional<unsigned> InRangeIndex = std::nullopt,
-                   Type *OnlyIfReducedTy = nullptr);
+                   Type *OnlyIfReducedTy = nullptr, bool ReserveType = false);
 
   /// Create an "inbounds" getelementptr. See the documentation for the
   /// "inbounds" flag in LangRef.html for details.
@@ -1264,6 +1264,12 @@ public:
   static Constant *getInBoundsGetElementPtr(Type *Ty, Constant *C,
                                             ArrayRef<Value *> IdxList) {
     return getGetElementPtr(Ty, C, IdxList, true);
+  }
+
+  static Constant *getInBoundsGetElementPtr(Type *Ty, Constant *C,
+                                            ArrayRef<Value *> IdxList,
+                                            bool InBounds, bool ReserveType) {
+    return getGetElementPtr(Ty, C, IdxList, InBounds, std::nullopt, nullptr, ReserveType);
   }
 
   static Constant *getExtractElement(Constant *Vec, Constant *Idx,

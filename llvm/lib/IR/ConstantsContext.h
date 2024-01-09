@@ -613,9 +613,11 @@ public:
   /// Remove this constant from the map
   void remove(ConstantClass *CP) {
     typename MapTy::iterator I = Map.find(CP);
+
     assert(I != Map.end() && "Constant not found in constant table!");
     assert(*I == CP && "Didn't find correct element?");
     Map.erase(I);
+
   }
 
   ConstantClass *replaceOperandsInPlace(ArrayRef<Constant *> Operands,

@@ -131,7 +131,7 @@ static Constant *FoldBitCast(Constant *V, Type *DestTy) {
         if (ElTy == DPTy->getNonOpaquePointerElementType())
           // This GEP is inbounds because all indices are zero.
           return ConstantExpr::getInBoundsGetElementPtr(
-              PTy->getNonOpaquePointerElementType(), V, IdxList);
+              PTy->getNonOpaquePointerElementType(), V, IdxList, true, true);
       }
 
   // Handle casts from one vector constant to another.  We know that the src

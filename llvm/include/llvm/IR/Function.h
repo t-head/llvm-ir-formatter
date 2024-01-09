@@ -122,6 +122,8 @@ private:
   ///
   Function(FunctionType *Ty, LinkageTypes Linkage, unsigned AddrSpace,
            const Twine &N = "", Module *M = nullptr);
+  Function(FunctionType *Ty, LinkageTypes Linkage, unsigned AddrSpace,
+           bool ReserveType, const Twine &N = "", Module *M = nullptr);
 
 public:
   Function(const Function&) = delete;
@@ -138,6 +140,13 @@ public:
                           Module *M = nullptr) {
     return new Function(Ty, Linkage, AddrSpace, N, M);
   }
+
+  static Function *Create(FunctionType *Ty, LinkageTypes Linkage,
+                          unsigned AddrSpace, bool ReserveType, const Twine &N = "",
+                          Module *M = nullptr) {
+    return new Function(Ty, Linkage, AddrSpace, ReserveType, N, M);
+  }
+
 
   // TODO: remove this once all users have been updated to pass an AddrSpace
   static Function *Create(FunctionType *Ty, LinkageTypes Linkage,

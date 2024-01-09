@@ -639,6 +639,7 @@ public:
   PointerType(const PointerType &) = delete;
   PointerType &operator=(const PointerType &) = delete;
 
+  static PointerType *get(Type *EltTy, unsigned AddressSpace, bool ReserveType);
   /// This constructs a pointer to an object of the specified type in a numbered
   /// address space.
   static PointerType *get(Type *ElementType, unsigned AddressSpace);
