@@ -1,0 +1,42 @@
+#!/bin/bash
+
+target irformatter
+
+build_command '
+if [ ${PPU_BUILD_TYPE} == dbg ]
+then
+  buildtype=Debug
+elif [ ${PPU_BUILD_TYPE} == rel ]
+then
+  buildtype=Release
+elif [ ${PPU_BUILD_TYPE} == rel_with_dbg_info ]
+then
+  buildtype=RelWithDebInfo
+else
+  buildtype=Release
+fi
+
+if [ ${LLVM_ASSERT_ON} == "On" ]
+then
+  ENABLE_ASSERT=On
+else
+  ENABLE_ASSERT=Off
+fi
+
+cd ${PPU_HOME}/llvm-ir-formatter
+mkdir -p build && cd build
+
+cmake -G Ninja -DCMAKE_BUILD_TYPE=${buildtype} -DLLVM_ENABLE_ASSERTIONS=${ENABLE_ASSERT}  \
+    ../llvm -DLLVM_ENABLE_PROJECTS="llvm" -DCMAKE_INSTALL_PREFIX="./output"
+ninja
+'
+
+clean_command '
+cd ${PPU_HOME}/llvm-ir-formatter
+rm -rf build
+'
+
+install_command '
+mkdir -p ${OUTPUT_DIR}/bin
+cp ${PPU_HOME}/llvm-ir-formatter/build/bin/llvm-irformatter ${OUTPUT_DIR}/bin
+'
