@@ -631,6 +631,9 @@ lltok::Kind LLLexer::LexIdentifier() {
   KEYWORD(amdgpu_cs);
   KEYWORD(amdgpu_kernel);
   KEYWORD(amdgpu_gfx);
+  //add this keyword only for bc testing
+  KEYWORD(alippu_kernel);
+  KEYWORD(alippu_device);
   KEYWORD(tailcc);
 
   KEYWORD(cc);

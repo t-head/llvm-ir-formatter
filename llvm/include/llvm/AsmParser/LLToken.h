@@ -174,6 +174,8 @@ enum Kind {
   kw_amdgpu_cs,
   kw_amdgpu_kernel,
   kw_amdgpu_gfx,
+  kw_alippu_kernel,
+  kw_alippu_device,
   kw_tailcc,
 
   // Attributes:
