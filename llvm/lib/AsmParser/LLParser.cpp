@@ -6459,8 +6459,14 @@ int LLParser::parseInstruction(Instruction *&Inst, BasicBlock *BB,
   }
 
   // Casts.
+  case lltok::kw_zext: {
+    // newer llvm version support nneg(none-negative) flag which specififes
+    // that the operand is non-negative and would help to convert zext to sext
+    // in the later optimization passes. We will just ignore the flag here.
+    // https://github.com/llvm/llvm-project/pull/67982
+    bool NonNeg = EatIfPresent(lltok::kw_nneg);
+  }
   case lltok::kw_trunc:
-  case lltok::kw_zext:
   case lltok::kw_sext:
   case lltok::kw_fptrunc:
   case lltok::kw_fpext:

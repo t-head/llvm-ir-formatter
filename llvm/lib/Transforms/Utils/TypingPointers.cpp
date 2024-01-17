@@ -618,7 +618,6 @@ void PointersAnalyzer::visitStoreInst(StoreInst &I) {
     I.setOperand(1, TypedDst);
     Changed |= true;
   }
-  
 }
 
 void PointersAnalyzer::visitPtrToIntInst(PtrToIntInst &I) {
