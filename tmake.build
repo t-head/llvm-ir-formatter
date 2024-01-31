@@ -23,6 +23,11 @@ else
   ENABLE_ASSERT=Off
 fi
 
+wget http://ai-artifactory-tools.eng.t-head.cn:9000/artifactory/tools/cmake/cmake-3.20.0-linux-x86_64.tar.gz -O ~/cmake-3.20.0-linux-x86_64.tar.gz
+tar -zxf ~/cmake-3.20.0-linux-x86_64.tar.gz
+export PATH=$(pwd)/cmake-3.20.0-linux-x86_64/bin/:$PATH
+cmake --version
+
 cd ${PPU_HOME}/llvm-ir-formatter
 mkdir -p build && cd build
 
