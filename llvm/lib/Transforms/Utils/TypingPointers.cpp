@@ -958,7 +958,22 @@ void PointersAnalyzer::visitSelectInst(SelectInst &I) {
   I.eraseFromParent();
 }
 
-void PointersAnalyzer::visitAtomicCmpXchgInst(AtomicCmpXchgInst &I) {}
+void PointersAnalyzer::visitAtomicCmpXchgInst(AtomicCmpXchgInst &I) {
+  LLVMContext &Ctx = I.getContext();
+  IRBuilder<> B(&I);
+  Value *PtrOpnd = I.getPointerOperand();
+  Type *PtrOpndTy = PtrOpnd->getType();
+  if(PtrOpndTy->isOpaquePointerTy()) {
+    Value *CompValue = I.getCompareOperand();
+    Value *NewValue = I.getNewValOperand();
+    Type *NewPtrTy = PointerType::get(CompValue->getType(), PtrOpndTy->getPointerAddressSpace(), true);
+    Value *PreCast = B.CreateBitCast(PtrOpnd, NewPtrTy);
+    Value *NewInst = B.CreateAtomicCmpXchg(PreCast, CompValue, NewValue, I.getAlign(),
+                       I.getSuccessOrdering(), I.getFailureOrdering(), I.getSyncScopeID());
+    I.replaceAllUsesWith(NewInst);
+    I.eraseFromParent();
+  }
+}
 void PointersAnalyzer::visitAtomicRMWInst(AtomicRMWInst &I) {
   LLVMContext &Ctx = I.getContext();
   IRBuilder<> B(&I);
