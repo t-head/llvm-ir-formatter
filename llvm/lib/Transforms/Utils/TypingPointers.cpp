@@ -723,12 +723,28 @@ void PointersAnalyzer::visitStoreInst(StoreInst &I) {
 }
 
 void PointersAnalyzer::visitPtrToIntInst(PtrToIntInst &I) {
-  //TODO
-  llvm_unreachable("Unresolved PtrToIntInst");
+  LLVMContext &Ctx = I.getContext();
+  IRBuilder<> B(&I);
+  Value *SrcOp = I.getPointerOperand();
+  if(SrcOp->getType()->isOpaquePointerTy()) {
+    Type* Int8Ptr = PointerType::get(Type::getInt8Ty(Ctx), SrcOp->getType()->getPointerAddressSpace(), true);
+    Value *PreCast = B.CreateBitCast(SrcOp, Int8Ptr);
+    Value *NewInst = B.CreatePtrToInt(PreCast, I.getType());
+    I.replaceAllUsesWith(NewInst);
+    I.eraseFromParent();
+  }
+
 }
 void PointersAnalyzer::visitIntToPtrInst(IntToPtrInst &I) {
-  //TODO
-  llvm_unreachable("Unresolved IntToPtrInst");
+  LLVMContext &Ctx = I.getContext();
+  IRBuilder<> B(&I);
+  if(I.getType()->isOpaquePointerTy()) {
+    Type* DestInt8Ptr = PointerType::get(Type::getInt8Ty(Ctx), I.getType()->getPointerAddressSpace(), true);
+    Value *NewInst = B.CreateIntToPtr(I.getOperand(0), DestInt8Ptr);
+    Value *PostCast = B.CreateBitCast(NewInst, I.getType());
+    I.replaceAllUsesWith(PostCast);
+    I.eraseFromParent();
+  }
 }
 void PointersAnalyzer::visitBitCastInst(BitCastInst &I) {
   //All the ptr related Bitcasts wil be handled in function
