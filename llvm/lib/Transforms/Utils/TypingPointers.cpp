@@ -1025,7 +1025,8 @@ bool PointersAnalyzer::processFunctionArguments(Function* &F) {
   IRBuilder<> B(F->getContext());
   FunctionType* FuncTy = F->getFunctionType();
   std::vector<llvm::Type *> ParamsTys;
-  bool needChange = false;
+  // all function need change because of potential function reference(function pointer)
+  bool needChange = true;
   bool ParamChange = false;
   bool RetChange = false;
   ConstantAsMetadata *MD = llvm::ConstantAsMetadata::getIfExists(F);
@@ -1034,7 +1035,6 @@ bool PointersAnalyzer::processFunctionArguments(Function* &F) {
     if(ParamTy->isOpaquePointerTy()) {
       auto TypedPtrTy = PointerType::get(B.getInt8Ty(), ParamTy->getPointerAddressSpace(), true);
       ParamsTys.push_back(TypedPtrTy);
-      needChange |= true;
       ParamChange |= true;
     } else {
       ParamsTys.push_back(ParamTy);
@@ -1045,7 +1045,6 @@ bool PointersAnalyzer::processFunctionArguments(Function* &F) {
   if(ResTy->isOpaquePointerTy()) {
     auto TypedPtrTy = PointerType::get(B.getInt8Ty(), ResTy->getPointerAddressSpace(), true);
     ResTy = TypedPtrTy;
-    needChange |= true;
     RetChange = true;
   }
   if(needChange) {
