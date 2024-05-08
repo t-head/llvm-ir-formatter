@@ -3,36 +3,44 @@
 target irformatter
 
 build_command '
-if [ ${PPU_BUILD_TYPE} == dbg ]
+if [ "${PPU_BUILD_TYPE}" == "dbg" ]
 then
   buildtype=Debug
-elif [ ${PPU_BUILD_TYPE} == rel ]
+elif [ "${PPU_BUILD_TYPE}" == "rel" ]
 then
   buildtype=Release
-elif [ ${PPU_BUILD_TYPE} == rel_with_dbg_info ]
+elif [ "${PPU_BUILD_TYPE}" == "rel_with_dbg_info" ]
 then
   buildtype=RelWithDebInfo
 else
   buildtype=Release
 fi
 
-if [ ${LLVM_ASSERT_ON} == "On" ]
+if [ "${LLVM_ASSERT_ON}" == "On" ]
 then
   ENABLE_ASSERT=On
 else
   ENABLE_ASSERT=Off
 fi
 
-wget http://ai-artifactory-tools.eng.t-head.cn:9000/artifactory/tools/cmake/cmake-3.20.0-linux-x86_64.tar.gz -O ~/cmake-3.20.0-linux-x86_64.tar.gz
-tar -zxf ~/cmake-3.20.0-linux-x86_64.tar.gz
-export PATH=$(pwd)/cmake-3.20.0-linux-x86_64/bin/:$PATH
-cmake --version
-
 cd ${PPU_HOME}/llvm-ir-formatter
 mkdir -p build && cd build
 
+cross=""
+if [ "${PPU_HOST_ARCH}" != "${PPU_TARGET_ARCH}" ]; then
+  CC=/usr/bin/${PPU_TARGET_ARCH}-linux-gnu-gcc
+  CXX=/usr/bin/${PPU_TARGET_ARCH}-linux-gnu-g++
+  cross="-DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=${PPU_TARGET_ARCH}"
+  cross+=" -DCMAKE_C_COMPILER=${CC} -DCMAKE_CXX_COMPILER=${CXX}"
+elif [ "${PPU_HOST_ARCH}" == "x86_64" ]; then
+  wget http://ai-artifactory-tools.eng.t-head.cn:9000/artifactory/tools/cmake/cmake-3.20.0-linux-x86_64.tar.gz -O ~/cmake-3.20.0-linux-x86_64.tar.gz
+  tar -zxf ~/cmake-3.20.0-linux-x86_64.tar.gz
+  export PATH=$(pwd)/cmake-3.20.0-linux-x86_64/bin/:$PATH
+  cmake --version
+fi
+
 cmake -G Ninja -DCMAKE_BUILD_TYPE=${buildtype} -DLLVM_ENABLE_ASSERTIONS=${ENABLE_ASSERT}  \
-    ../llvm -DLLVM_ENABLE_PROJECTS="llvm" -DCMAKE_INSTALL_PREFIX="./output"
+    ../llvm -DLLVM_ENABLE_PROJECTS="llvm" -DCMAKE_INSTALL_PREFIX="./output" ${cross}
 ninja
 '
 
