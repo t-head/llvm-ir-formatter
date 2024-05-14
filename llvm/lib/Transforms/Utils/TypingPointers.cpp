@@ -385,9 +385,9 @@ void PointersAnalyzer::processConstantExpression(ConstantExpr *CE,
     ConstantExpMap[CE] = NewAC;
 
   } else if(auto * PTI= dyn_cast<PtrToIntOperator>(CE)) {
-    llvm_unreachable("PtrToIntOperator ConstantExpr type need to be handle");
+    report_fatal_error("PtrToIntOperator ConstantExpr type need to be handle");
   } else {
-    llvm_unreachable("Unknown ConstantExpr type need to be handle");
+    report_fatal_error("Unknown ConstantExpr type need to be handle");
   }
 
 }
@@ -399,7 +399,7 @@ void PointersAnalyzer::processStructure(Value* SVal, StructType* NewTy) {
     std::vector<Type*> TyList;
     for(auto SubTy : STy->subtypes()) {
       if(SubTy->isAggregateType()) {
-        llvm_unreachable("New nested isAggregateType need to handle");
+        report_fatal_error("New nested isAggregateType need to handle");
       } else if(SubTy->isOpaquePointerTy()) {
         Type* Int8Ptr = PointerType::get(Type::getInt8Ty(Ctx), SubTy->getPointerAddressSpace(), true);
         TyList.push_back(Int8Ptr);
@@ -448,7 +448,7 @@ void PointersAnalyzer::processStructure(Value* SVal, StructType* NewTy) {
           IstValue = ConstantExpMap[CE];
 
         } else {
-          llvm_unreachable("Unknow type of value inserted in structure");
+          report_fatal_error("Unknow type of value inserted in structure");
         }
       }
       NewAgg = B.CreateInsertValue(NewAgg, IstValue, Indices);
@@ -506,14 +506,14 @@ void PointersAnalyzer::processPHI() {
           ExtractI->replaceAllUsesWith(NewExtract);
           ExtractI->eraseFromParent();
         } else {
-          llvm_unreachable("Unresolved PHI node use");
+          report_fatal_error("Unresolved PHI node use");
         }
       }
       // remove PHI and its creation chain
       if(PHII->user_empty()) {
         PHII->eraseFromParent();
       } else {
-        llvm_unreachable("Unresolved PHI Node");
+        report_fatal_error("Unresolved PHI Node");
       }
     } else {
       //ptr type, need to insert bitcast right behind the operand value.
@@ -534,7 +534,7 @@ void PointersAnalyzer::processPHI() {
           }
           NewOpnd = ConstantExpMap[CE];
         } else {
-          llvm_unreachable("Unresolved PHI node value");
+          report_fatal_error("Unresolved PHI node value");
         }
         NewPHI->addIncoming(NewOpnd, PHII->getIncomingBlock(Idx));
       }
@@ -542,7 +542,7 @@ void PointersAnalyzer::processPHI() {
       PHII->replaceAllUsesWith(PostCast);
       PHII->eraseFromParent();
 
-      //llvm_unreachable("Unresolved PHI node");
+      //report_fatal_error("Unresolved PHI node");
     }
   }
 }
@@ -558,7 +558,7 @@ void PointersAnalyzer::removeDeadValue() {
         if(IsrtVal->user_empty()) {
           IsrtVal->eraseFromParent();
         } else {
-          llvm_unreachable("Unresolved structure chain value");
+          report_fatal_error("Unresolved structure chain value");
         }
       }
     } else {
@@ -566,10 +566,10 @@ void PointersAnalyzer::removeDeadValue() {
         if(Constant * CSVal = dyn_cast<Constant>(SVal)) {
           CSVal->destroyConstant();
         } else {
-          llvm_unreachable("Unresolved strutrue type");
+          report_fatal_error("Unresolved strutrue type");
         }
       } else {
-        llvm_unreachable("Unresolved structure use");
+        report_fatal_error("Unresolved structure use");
       }
     }
   }
@@ -581,7 +581,7 @@ void PointersAnalyzer::removeDeadValue() {
       if(GV->user_empty()) {
         GV->eraseFromParent();
       } else {
-        llvm_unreachable("Unresolved Global Vairable");
+        report_fatal_error("Unresolved Global Vairable");
       }
     }
   }
@@ -869,14 +869,14 @@ void PointersAnalyzer::visitPHINode(PHINode &I) {
         ExtractI->replaceAllUsesWith(NewExtract);
         ExtractI->eraseFromParent();
       } else {
-        llvm_unreachable("Unresolved PHI node use");
+        report_fatal_error("Unresolved PHI node use");
       }
     }
     // remove PHI and its creation chain
     if(PHII->user_empty()) {
       PHII->eraseFromParent();
     } else {
-      llvm_unreachable("Unresolved PHI Node");
+      report_fatal_error("Unresolved PHI Node");
     }
   } else {
     //ptr type, need to insert bitcast right behind the operand value.
@@ -897,7 +897,7 @@ void PointersAnalyzer::visitPHINode(PHINode &I) {
         }
         NewOpnd = ConstantExpMap[CE];
       } else {
-        llvm_unreachable("Unresolved PHI node value");
+        report_fatal_error("Unresolved PHI node value");
       }
       NewPHI->addIncoming(NewOpnd, PHII->getIncomingBlock(Idx));
     }
@@ -905,7 +905,7 @@ void PointersAnalyzer::visitPHINode(PHINode &I) {
     PHII->replaceAllUsesWith(PostCast);
     PHII->eraseFromParent();
 
-    //llvm_unreachable("Unresolved PHI node");
+    //report_fatal_error("Unresolved PHI node");
   }
 
 }
@@ -914,7 +914,7 @@ void PointersAnalyzer::visitExtractElementInst(ExtractElementInst &I) {
   // TODO:
   // All the ptr related ExtractElement should be handled in the Vector
   if(I.getType()->isOpaquePointerTy()) {
-    llvm_unreachable("Unresolved Vector Extract Elements");
+    report_fatal_error("Unresolved Vector Extract Elements");
   }
 }
 void PointersAnalyzer::visitInsertElementInst(InsertElementInst &I) {
@@ -922,7 +922,7 @@ void PointersAnalyzer::visitInsertElementInst(InsertElementInst &I) {
   // All the ptr related InsertElement should be handled in the funtion
   // Vector&removeDeadValue
   if(isContainOpaquePointers(I.getType())) {
-    llvm_unreachable("Unresolved Vector Insert Elements");
+    report_fatal_error("Unresolved Vector Insert Elements");
   }
 }
 void PointersAnalyzer::visitExtractValueInst(ExtractValueInst &I) {
@@ -939,7 +939,7 @@ void PointersAnalyzer::visitInstruction(Instruction &I) {
     Value* opnd = I.getOperand(Idx);
     if(isContainOpaquePointers(opnd->getType())) {
       I.print(llvm::errs());
-      llvm_unreachable("Instruction contain opaque pointer need to be handled");
+      report_fatal_error("Instruction contain opaque pointer need to be handled");
     }
 
   }
@@ -959,13 +959,13 @@ void PointersAnalyzer::visitSelectInst(SelectInst &I) {
     Type* Int8Ptr = PointerType::get(Type::getInt8Ty(Ctx), TrueVal->getType()->getPointerAddressSpace(), true);
     TrueVal = B.CreateBitCast(TrueVal, Int8Ptr);
   } else {
-    llvm_unreachable("Unconsistent select operand");
+    report_fatal_error("Unconsistent select operand");
   }
   if(FalseVal->getType()->isOpaquePointerTy()) {
     Type* Int8Ptr = PointerType::get(Type::getInt8Ty(Ctx), FalseVal->getType()->getPointerAddressSpace(), true);
     FalseVal = B.CreateBitCast(FalseVal, Int8Ptr);
   } else {
-    llvm_unreachable("Unconsistent select operand");
+    report_fatal_error("Unconsistent select operand");
   }
   Type* Int8Ptr = PointerType::get(Type::getInt8Ty(Ctx), I.getType()->getPointerAddressSpace(), true);
   Value* NewSel = B.CreateSelect(Condition, TrueVal, FalseVal);
