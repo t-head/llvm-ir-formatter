@@ -770,13 +770,19 @@ void PointersAnalyzer::visitAddrSpaceCastInst(AddrSpaceCastInst &I) {
 }
 
 void PointersAnalyzer::visitGetElementPtrInst(GetElementPtrInst &I) {
-
+  LLVMContext &Ctx = I.getContext();
   auto SrcPtr = I.getOperand(0);
   IRBuilder<> B(&I);
   auto BB = I.getParent();
 
   if(SrcPtr->getType()->isOpaquePointerTy()) {
     Type* SrcTy = I.getSourceElementType();
+
+    //%152 = getelementptr ptr addrspace(1), ptr addrspace(3) @global_smem, i64 %56, !dbg !35
+    if(SrcTy->isOpaquePointerTy()) {
+      //%152 = getelementptr i8* addrspace(1), i8** @global_smem, i64 %56, !dbg !35
+      SrcTy = PointerType::get(Type::getInt8Ty(Ctx), SrcTy->getPointerAddressSpace(), true);
+    }
 
     LLVM_DEBUG(llvm::dbgs() << "Meet GEP: \n";
                I.print(llvm::dbgs());
