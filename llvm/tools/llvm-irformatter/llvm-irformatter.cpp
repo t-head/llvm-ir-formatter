@@ -59,19 +59,15 @@ static cl::opt<std::string> OutputFilename("o",
 static cl::opt<bool> Force("f", cl::desc("Enable binary output on terminals"),
                            cl::cat(FormatterCat));
 
-static cl::opt<bool> DeleteFn("delete",
-                              cl::desc("Delete specified Globals from Module"),
+static cl::opt<bool> TypingPtrs("type-pointers",
+                              cl::desc("Typed all opaque pointers"),
+                              cl::init(true),
                               cl::cat(FormatterCat));
 
-static cl::opt<bool> KeepConstInit("keep-const-init",
-                              cl::desc("Keep initializers of constants"),
+static cl::opt<bool> VerifyPtrs("verify-pointers",
+                              cl::desc("Check no opaque pointers"),
+                              cl::init(false),
                               cl::cat(FormatterCat));
-
-static cl::opt<bool>
-    TypingPtrs("type-pointers", cl::desc("Recursively extract all called functions"),
-              cl::init(true));
-
-
 
 static cl::opt<bool> OutputAssembly("S",
                                     cl::desc("Write output as LLVM assembly"),
@@ -120,6 +116,9 @@ int main(int argc, char **argv) {
   }
   if(TypingPtrs)
     PM.addPass(TypingPointers());
+
+  if(VerifyPtrs)
+    PM.addPass(VerifyPointers());
 
 
   if (OutputAssembly)

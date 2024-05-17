@@ -27,12 +27,14 @@ then
     rm -rf $BUILD_DIR && mkdir $BUILD_DIR && cd $BUILD_DIR
     cmake -G Ninja -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DLLVM_ENABLE_ASSERTIONS=${ENABLE_ASSERT}  \
     ../llvm -DLLVM_ENABLE_PROJECTS="llvm" -DCMAKE_INSTALL_PREFIX="./output" \
-    && ninja
+    && ninja \
+    && ./bin/llvm-lit ${BASEDIR}/llvm/test/tools/llvm-irformatter/
 else
     cd $BUILD_DIR
     cmake -G Ninja -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DLLVM_ENABLE_ASSERTIONS=${ENABLE_ASSERT}  \
     ../llvm -DLLVM_ENABLE_PROJECTS="llvm" -DCMAKE_INSTALL_PREFIX="./output" \
-    && ninja
+    && ninja \
+    && ./bin/llvm-lit ${BASEDIR}/llvm/test/tools/llvm-irformatter/
 fi
 
 if [ $? -ne 0 ]

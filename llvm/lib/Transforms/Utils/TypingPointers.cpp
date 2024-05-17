@@ -94,7 +94,7 @@ public:
 
   void collectStruct(Instruction &I);
   void preparations(Module &M);
-  bool isContainOpaquePointers(Type *Ty);
+  //bool isContainOpaquePointers(Type *Ty);
 
   void processNVVMReflect(Module &M);
   void processFunctions(Module &M);
@@ -154,6 +154,19 @@ bool PointersAnalyzer::runOnModule(Module& M) {
 }
 
 
+bool static isContainOpaquePointers(Type *Ty) {
+  if(Ty->getNumContainedTypes() == 0) {
+    return Ty->isOpaquePointerTy();
+  } else {
+    for(auto SubTy : Ty->subtypes()) {
+      if(isContainOpaquePointers(SubTy))
+        return true;
+    }
+    return false;
+  }
+}
+
+
 void PointersAnalyzer::preparations(Module &M) {
   for(auto &V : M.globals()) {
     GlobalList.push_back(&V);
@@ -205,17 +218,6 @@ void PointersAnalyzer::collectStruct(Instruction &I) {
 }
 
 
-bool PointersAnalyzer::isContainOpaquePointers(Type *Ty) {
-  if(Ty->getNumContainedTypes() == 0) {
-    return Ty->isOpaquePointerTy();
-  } else {
-    for(auto SubTy : Ty->subtypes()) {
-      if(isContainOpaquePointers(SubTy))
-        return true;
-    }
-    return false;
-  }
-}
 
 
 void PointersAnalyzer::processNVVMReflect(Module &M) {
@@ -1281,4 +1283,53 @@ void PointersAnalyzer::processFunctions(Module& M) {
     Function *F = Iter.first;
     processFunction(F);
   }
+}
+
+
+#define DEBUG_TYPE "verify-pointers"
+
+namespace {
+class VerifyAnalyzer:public InstVisitor<VerifyAnalyzer> {
+
+public:
+  VerifyAnalyzer()=default;
+  void visitInstruction(Instruction &I);
+  bool runOnModule(Module &M);
+};
+}
+
+bool VerifyAnalyzer::runOnModule(Module &M) {
+  visit(M);
+  return false;
+}
+
+void VerifyAnalyzer::visitInstruction(Instruction &I) {
+
+  LLVM_DEBUG(llvm::dbgs() << "Verify instruction: ";
+              I.print(llvm::dbgs());
+              llvm::dbgs() << "\n"; );
+
+  // Check if there are unhandled instuctions
+  for(unsigned Idx = 0; Idx < I.getNumOperands(); Idx++) {
+    Value* opnd = I.getOperand(Idx);
+
+    // keep inlineAsm type, because inlineAsm will be only used once
+    if(const InlineAsm *IA = dyn_cast<InlineAsm>(opnd))
+      continue;
+
+    if(isContainOpaquePointers(opnd->getType())) {
+      I.print(llvm::errs());
+      llvm::errs() << "\n";
+      report_fatal_error("Instruction contain opaque pointer need to be handled");
+    }
+  }
+}
+
+
+PreservedAnalyses VerifyPointers::run(Module &M, ModuleAnalysisManager &MAM) {
+  VerifyAnalyzer Analyzer;
+
+  Analyzer.runOnModule(M);
+
+  return PreservedAnalyses::all();
 }

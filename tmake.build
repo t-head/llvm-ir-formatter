@@ -40,6 +40,10 @@ clean_command '
 cd ${PPU_HOME}/llvm-ir-formatter
 rm -rf build
 '
+test_command '
+cd ${PPU_HOME}/llvm-ir-formatter/build
+./bin/llvm-lit ${BASEDIR}/llvm/test/tools/llvm-irformatter/
+'
 
 install_command '
 mkdir -p ${OUTPUT_DIR}/bin

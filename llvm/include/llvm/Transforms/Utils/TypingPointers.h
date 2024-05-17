@@ -25,6 +25,16 @@ public:
   PreservedAnalyses run(Module &M, ModuleAnalysisManager &MAM);
 };
 
+// This pass is used to check all pointers to make sure only typed
+// pointers existed. Currently, only used in llvm unit test.
+class VerifyPointers : public PassInfoMixin<VerifyPointers> {
+public:
+  VerifyPointers()=default;
+
+  PreservedAnalyses run(Module &M, ModuleAnalysisManager &MAM);
+};
+
+
 } // end namespace llvm
 
 #endif // LLVM_TRANSFORMS_UTILS_TYPINGPOINTERS_H
