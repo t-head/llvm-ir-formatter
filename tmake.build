@@ -42,7 +42,7 @@ rm -rf build
 '
 test_command '
 cd ${PPU_HOME}/llvm-ir-formatter/build
-./bin/llvm-lit ${BASEDIR}/llvm/test/tools/llvm-irformatter/
+./bin/llvm-lit ${PPU_HOME}/llvm-ir-formatter/llvm/test/tools/llvm-irformatter/
 '
 
 install_command '
