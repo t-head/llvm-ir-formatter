@@ -617,7 +617,33 @@ void PointersAnalyzer::visitAllocaInst(AllocaInst &I) {
     I.replaceAllUsesWith(TransTemp);
     I.eraseFromParent();
 
-  } else if(I.getType()->isOpaquePointerTy()) {
+  }else if(isContainOpaquePointers(I.getAllocatedType())) {
+    LLVMContext &Ctx = I.getContext();
+    IRBuilder<> B(&I);
+    // alloc a structure type
+    if(StructType * STy = dyn_cast<StructType>(I.getAllocatedType())) {
+      std::vector<Type*> TyList;
+      for(auto SubTy : STy->subtypes()) {
+        if(SubTy->isAggregateType()) {
+          report_fatal_error("New nested isAggregateType need to handle");
+        } else if(SubTy->isOpaquePointerTy()) {
+          Type* Int8Ptr = PointerType::get(Type::getInt8Ty(Ctx), SubTy->getPointerAddressSpace(), true);
+          TyList.push_back(Int8Ptr);
+        } else {
+          TyList.push_back(SubTy);
+        }
+      }
+      auto NewTy =  StructType::get(Ctx, TyList);
+      Type *RetTy = PointerType::get(NewTy, I.getAddressSpace(), true);
+      Value *NewAlloc = B.CreateAlloca(NewTy, I.getAddressSpace(), I.getArraySize());
+      NewAlloc->mutateType(RetTy);
+      Value* TransTemp = B.CreateBitCast(NewAlloc, I.getType());
+      I.replaceAllUsesWith(TransTemp);
+      I.eraseFromParent();
+    } else {
+      report_fatal_error("New nested isAggregateType need to handle");
+    }
+  }else if(I.getType()->isOpaquePointerTy()) {
     Type *DataTy = I.getAllocatedType();
     Type *DataPtrTy = PointerType::get(DataTy, I.getAddressSpace(), true);
     IRBuilder<> B(&I);
@@ -784,6 +810,25 @@ void PointersAnalyzer::visitGetElementPtrInst(GetElementPtrInst &I) {
     if(SrcTy->isOpaquePointerTy()) {
       //%152 = getelementptr i8* addrspace(1), i8** @global_smem, i64 %56, !dbg !35
       SrcTy = PointerType::get(Type::getInt8Ty(Ctx), SrcTy->getPointerAddressSpace(), true);
+    } else if (isContainOpaquePointers(SrcTy)) {
+      // structure type
+      // %13 = getelementptr inbounds { i32, i32, i32, i32, ptr, i32 }, ptr %12, i64 0, i32 1
+      if(StructType * STy = dyn_cast<StructType>(SrcTy)) {
+        std::vector<Type*> TyList;
+        for(auto SubTy : STy->subtypes()) {
+          if(SubTy->isAggregateType()) {
+            report_fatal_error("New nested isAggregateType need to handle");
+          } else if(SubTy->isOpaquePointerTy()) {
+            Type* Int8Ptr = PointerType::get(Type::getInt8Ty(Ctx), SubTy->getPointerAddressSpace(), true);
+            TyList.push_back(Int8Ptr);
+          } else {
+            TyList.push_back(SubTy);
+          }
+        }
+        SrcTy =  StructType::get(Ctx, TyList);
+      } else {
+        report_fatal_error("New isAggregateType need to handle");
+      }
     }
 
     LLVM_DEBUG(llvm::dbgs() << "Meet GEP: \n";
@@ -797,7 +842,7 @@ void PointersAnalyzer::visitGetElementPtrInst(GetElementPtrInst &I) {
       Idx.push_back(*Iter);
     }
 
-    Value *NewGEP = B.CreateGEP(SrcTy, TypedSrc, Idx);
+    Value *NewGEP = B.CreateGEP(SrcTy, TypedSrc, Idx, "", I.isInBounds());
     //using mutateType introduce risk
     Type *GEPRetTy = GetElementPtrInst::getGEPReturnType(SrcTy, TypedSrc, Idx, true);
     NewGEP->mutateType(GEPRetTy);
