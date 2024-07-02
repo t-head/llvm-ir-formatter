@@ -835,8 +835,20 @@ void PointersAnalyzer::visitGetElementPtrInst(GetElementPtrInst &I) {
                I.print(llvm::dbgs());
                llvm::dbgs() << "\n"; );
 
+    Value* TypedSrc;
     auto TypedPtrTy = PointerType::get(SrcTy, SrcPtr->getType()->getPointerAddressSpace(), true);
-    Value* TypedSrc = B.CreateBitCast(SrcPtr, TypedPtrTy);
+    if(ConstantExpr *CE = dyn_cast<ConstantExpr>(SrcPtr)) {
+      if(ConstantExpMap.find(CE) == ConstantExpMap.end()) {
+        processConstantExpression(CE);
+      }
+      Value* NewSrcOpnd = ConstantExpMap[CE];
+      if(TypedPtrTy != NewSrcOpnd->getType())
+        TypedSrc = B.CreateBitCast(NewSrcOpnd, TypedPtrTy);
+      else
+        TypedSrc = NewSrcOpnd;
+    } else {
+      TypedSrc = B.CreateBitCast(SrcPtr, TypedPtrTy);
+    }
     std::vector<Value*>Idx;
     for(auto Iter = I.idx_begin(); Iter != I.idx_end(); Iter++) {
       Idx.push_back(*Iter);
