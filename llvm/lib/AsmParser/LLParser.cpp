@@ -6472,7 +6472,13 @@ int LLParser::parseInstruction(Instruction *&Inst, BasicBlock *BB,
     // https://github.com/llvm/llvm-project/pull/67982
     bool NonNeg = EatIfPresent(lltok::kw_nneg);
   }
-  case lltok::kw_trunc:
+  case lltok::kw_trunc: {
+    bool NUW = EatIfPresent(lltok::kw_nuw);
+    bool NSW = EatIfPresent(lltok::kw_nsw);
+    if (!NUW)
+      NUW = EatIfPresent(lltok::kw_nuw);
+    return parseCast(Inst, PFS, KeywordVal);
+  }
   case lltok::kw_sext:
   case lltok::kw_fptrunc:
   case lltok::kw_fpext:
