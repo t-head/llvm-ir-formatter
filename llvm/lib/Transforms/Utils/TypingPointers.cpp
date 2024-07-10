@@ -109,6 +109,8 @@ public:
                                  GlobalVariable* NewGV=nullptr);
   void processVector(Value* VecVal);
 
+  Value* processPtr(IRBuilder<> &builder, Value* SrcPtr, Type* TypedPtrTy);
+
   void removeRedundentBitCast(Module &M);
   void removeDeadValue();
 
@@ -322,6 +324,24 @@ void PointersAnalyzer::processStructures() {
     }
   }
 }
+
+Value* PointersAnalyzer::processPtr(IRBuilder<> &builder, Value* SrcPtr, Type* TypedPtrTy) {
+  Value *TypedSrc;
+  if(ConstantExpr *CE = dyn_cast<ConstantExpr>(SrcPtr)) {
+    if(ConstantExpMap.find(CE) == ConstantExpMap.end()) {
+      processConstantExpression(CE);
+    }
+    Value* NewSrcOpnd = ConstantExpMap[CE];
+    if(TypedPtrTy != NewSrcOpnd->getType())
+      TypedSrc = builder.CreateBitCast(NewSrcOpnd, TypedPtrTy);
+    else
+      TypedSrc = NewSrcOpnd;
+  } else {
+    TypedSrc = builder.CreateBitCast(SrcPtr, TypedPtrTy);
+  }
+  return TypedSrc;
+}
+
 
 void PointersAnalyzer::processConstantExpression(ConstantExpr *CE,
                                             GlobalVariable* OldGV,
@@ -697,7 +717,7 @@ void PointersAnalyzer::visitLoadInst(LoadInst &I) {
     Value *OldPtr = I.getPointerOperand();
     Type *NewValTy = PointerType::get(B.getInt8Ty(), OldPtr->getType()->getPointerAddressSpace(), true);
     Type *NewPtrTy = PointerType::get(NewValTy, OldPtr->getType()->getPointerAddressSpace(), true);
-    Value *NewPtr = B.CreateBitCast(OldPtr, NewPtrTy);
+    Value *NewPtr = processPtr(B, OldPtr, NewPtrTy);
     LoadInst *NewLoad = B.CreateLoad(NewValTy, NewPtr, I.isVolatile());
 
     NewLoad->setAlignment(I.getAlign());
@@ -713,7 +733,7 @@ void PointersAnalyzer::visitLoadInst(LoadInst &I) {
       IRBuilder<> B(&I);
       Type *DataTy = I.getType();
       Type *DataPtrTy = PointerType::get(DataTy, I.getPointerAddressSpace(), true);
-      Value *TypedSrc = B.CreateBitCast(Src, DataPtrTy);
+      Value *TypedSrc = processPtr(B, Src, DataPtrTy);
       I.setOperand(0, TypedSrc);
       Changed |= true;
     }
@@ -835,20 +855,9 @@ void PointersAnalyzer::visitGetElementPtrInst(GetElementPtrInst &I) {
                I.print(llvm::dbgs());
                llvm::dbgs() << "\n"; );
 
-    Value* TypedSrc;
     auto TypedPtrTy = PointerType::get(SrcTy, SrcPtr->getType()->getPointerAddressSpace(), true);
-    if(ConstantExpr *CE = dyn_cast<ConstantExpr>(SrcPtr)) {
-      if(ConstantExpMap.find(CE) == ConstantExpMap.end()) {
-        processConstantExpression(CE);
-      }
-      Value* NewSrcOpnd = ConstantExpMap[CE];
-      if(TypedPtrTy != NewSrcOpnd->getType())
-        TypedSrc = B.CreateBitCast(NewSrcOpnd, TypedPtrTy);
-      else
-        TypedSrc = NewSrcOpnd;
-    } else {
-      TypedSrc = B.CreateBitCast(SrcPtr, TypedPtrTy);
-    }
+    Value* TypedSrc = processPtr(B, SrcPtr, TypedPtrTy);
+
     std::vector<Value*>Idx;
     for(auto Iter = I.idx_begin(); Iter != I.idx_end(); Iter++) {
       Idx.push_back(*Iter);
