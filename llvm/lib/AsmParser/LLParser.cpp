@@ -6508,12 +6508,14 @@ int LLParser::parseInstruction(Instruction *&Inst, BasicBlock *BB,
   }
 
   // Casts.
+  case lltok::kw_uitofp:
   case lltok::kw_zext: {
     // newer llvm version support nneg(none-negative) flag which specififes
     // that the operand is non-negative and would help to convert zext to sext
     // in the later optimization passes. We will just ignore the flag here.
     // https://github.com/llvm/llvm-project/pull/67982
     bool NonNeg = EatIfPresent(lltok::kw_nneg);
+    return parseCast(Inst, PFS, KeywordVal);
   }
   case lltok::kw_trunc: {
     bool NUW = EatIfPresent(lltok::kw_nuw);
@@ -6527,7 +6529,6 @@ int LLParser::parseInstruction(Instruction *&Inst, BasicBlock *BB,
   case lltok::kw_fpext:
   case lltok::kw_bitcast:
   case lltok::kw_addrspacecast:
-  case lltok::kw_uitofp:
   case lltok::kw_sitofp:
   case lltok::kw_fptoui:
   case lltok::kw_fptosi:
