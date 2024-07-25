@@ -107,6 +107,7 @@ public:
   // format the constant expression and map with the typed expressions
   void processConstantExpression(ConstantExpr *CE, GlobalVariable* OldGV=nullptr,
                                  GlobalVariable* NewGV=nullptr);
+  Constant* processConstantAggregate(ConstantAggregate *CA);
   void processVector(Value* VecVal);
 
   Value* processPtr(IRBuilder<> &builder, Value* SrcPtr, Type* TypedPtrTy);
@@ -240,10 +241,16 @@ void PointersAnalyzer::processGlobals(Module &M) {
                  llvm::dbgs() << "\n"; );
       //Copy Global
       Constant *Initializer = nullptr;
+      auto* ValueType = GV->getValueType();
       if(GV->hasInitializer()) {
         Initializer = GV->getInitializer();
+        if(ConstantAggregate* CA = dyn_cast<ConstantAggregate>(Initializer)) {
+          LLVM_DEBUG(llvm::dbgs() << "ConstantAggregate type";);
+          Initializer = processConstantAggregate(CA);
+        }
+        ValueType = Initializer->getType();
       }
-      GlobalVariable *NewGV = new GlobalVariable(M, GV->getValueType(), GV->isConstant(),
+      GlobalVariable *NewGV = new GlobalVariable(M, ValueType, GV->isConstant(),
                                 GV->getLinkage(), Initializer, true, GV->getName(),
                                 nullptr, GV->getThreadLocalMode(), GV->getType()->getAddressSpace());
       NewGV->copyAttributesFrom(GV);
@@ -414,6 +421,67 @@ void PointersAnalyzer::processConstantExpression(ConstantExpr *CE,
 
 }
 
+Constant* PointersAnalyzer::processConstantAggregate(ConstantAggregate *CAG) {
+  LLVMContext &Ctx = CAG->getContext();
+  if(auto *CAY = dyn_cast<ConstantArray>(CAG)) {
+    auto *ETy = CAY->getType()->getElementType();
+    //array element type contains ptr
+    if(isContainOpaquePointers(ETy)) {
+      if(ETy->isOpaquePointerTy()) {
+        Type* I8Ptr = PointerType::get(Type::getInt8Ty(Ctx),
+                                  ETy->getPointerAddressSpace(), true);
+        auto* NewATy = ArrayType::get(I8Ptr, CAY->getType()->getNumElements());
+        SmallVector<Constant *, 8> Opnds;
+        for(unsigned Idx = 0; Idx < CAY->getNumOperands(); Idx++) {
+          Constant* Elt = CAY->getOperand(Idx);
+          Constant* NewElt = ConstantExpr::getBitCast(Elt, I8Ptr);
+          Opnds.push_back(NewElt);
+        }
+        return ConstantArray::get(NewATy, Opnds);
+      } else if (auto STy = dyn_cast<StructType>(ETy)) {
+        std::vector<Type*> TyList;
+        for(auto SubTy : STy->subtypes()) {
+          if(SubTy->isAggregateType()) {
+            report_fatal_error("New nested isAggregateType need to handle");
+          } else if(SubTy->isOpaquePointerTy()) {
+            Type* Int8Ptr = PointerType::get(Type::getInt8Ty(Ctx),
+                                  SubTy->getPointerAddressSpace(), true);
+            TyList.push_back(Int8Ptr);
+          } else {
+            TyList.push_back(SubTy);
+          }
+        }
+        auto* NewSTy = StructType::get(Ctx, TyList);
+        auto* NewATy = ArrayType::get(NewSTy, CAY->getType()->getNumElements());
+        SmallVector<Constant *, 8> Opnds;
+        for(unsigned Idx = 0; Idx < CAY->getNumOperands(); Idx++) {
+          ConstantStruct* Elt = dyn_cast<ConstantStruct>(CAY->getOperand(Idx));
+          SmallVector<Constant *, 8> SOpnds;
+          for(unsigned SI = 0; SI < Elt->getNumOperands(); SI++) {
+            Constant* SElt = Elt->getOperand(SI);
+            if(SElt->getType()->isOpaquePointerTy()) {
+              Type* Int8Ptr = PointerType::get(Type::getInt8Ty(Ctx),
+                                  SElt->getType()->getPointerAddressSpace(), true);
+              if(auto* Func = dyn_cast<Function>(SElt)) {
+                processFunction(Func);
+                SElt = Func;
+              }
+              Constant* NewElt = ConstantExpr::getBitCast(SElt, Int8Ptr);
+              SOpnds.push_back(NewElt);
+            } else {
+              SOpnds.push_back(SElt);
+            }
+          }
+          auto* NewOpnd = ConstantStruct::get(NewSTy, SOpnds);
+          Opnds.push_back(NewOpnd);
+        }
+        return ConstantArray::get(NewATy, Opnds);
+      }
+    }
+    return CAG;
+  }
+}
+
 void PointersAnalyzer::processStructure(Value* SVal, StructType* NewTy) {
   LLVMContext &Ctx = SVal->getContext();
   StructType * STy = dyn_cast<StructType>(SVal->getType());
@@ -429,7 +497,7 @@ void PointersAnalyzer::processStructure(Value* SVal, StructType* NewTy) {
         TyList.push_back(SubTy);
       }
     }
-    NewTy =  StructType::get(Ctx, TyList);
+    NewTy = StructType::get(Ctx, TyList);
   }
   if(ConstantStruct *CStruct = dyn_cast<ConstantStruct>(SVal)) {
     //Create a new constantStructure and insert in the structure map
@@ -1103,6 +1171,7 @@ bool PointersAnalyzer::processFunctionArguments(Function* &F) {
   bool needChange = true;
   bool ParamChange = false;
   bool RetChange = false;
+  bool DeleteFunc = true;
   ConstantAsMetadata *MD = llvm::ConstantAsMetadata::getIfExists(F);
   for(unsigned Idx = 0; Idx < FuncTy->getNumParams(); Idx++) {
     Type* ParamTy = FuncTy->getParamType(Idx);
@@ -1231,6 +1300,8 @@ bool PointersAnalyzer::processFunctionArguments(Function* &F) {
             CI->replaceAllUsesWith(NewCI);
           }
           CI->eraseFromParent();
+        } else if (Constant* CF = dyn_cast<Constant>(*UserI)) {
+          DeleteFunc = false;
         } else {
           // Fix up any BlockAddresses that refer to the function.
           UserI->replaceUsesOfWith(F, ConstantExpr::getBitCast(NewFn, F->getType()));
@@ -1254,7 +1325,8 @@ bool PointersAnalyzer::processFunctionArguments(Function* &F) {
       //MD->replaceAllUsesWith(NewMD);
     }
 
-    F->eraseFromParent();
+    if(DeleteFunc)
+      F->eraseFromParent();
     F = NewFn;
 
     Changed |= true;
@@ -1360,6 +1432,8 @@ class VerifyAnalyzer:public InstVisitor<VerifyAnalyzer> {
 public:
   VerifyAnalyzer()=default;
   void visitInstruction(Instruction &I);
+  void visitModule(Module &M);
+  void visitFunction(Function &F);
   bool runOnModule(Module &M);
 };
 }
@@ -1367,6 +1441,38 @@ public:
 bool VerifyAnalyzer::runOnModule(Module &M) {
   visit(M);
   return false;
+}
+
+
+void VerifyAnalyzer::visitFunction(Function &F) {
+  FunctionType* FuncTy = F.getFunctionType();
+  for(auto *EltTy : FuncTy->params()) {
+    if(isContainOpaquePointers(EltTy)) {
+      F.print(llvm::errs());
+      llvm::errs() << "\n";
+      report_fatal_error("Function contain opaque pointer need to be handled");
+    }
+  }
+}
+
+void VerifyAnalyzer::visitModule(Module &M) {
+  for(auto &GV : M.globals()) {
+    if(GV.getType()->isOpaquePointerTy()) {
+      GV.print(llvm::errs());
+      llvm::errs() << "\n";
+      report_fatal_error("Global Variable contain opaque pointer need to be handled");
+    }
+    if(GV.hasInitializer()) {
+      auto* Initializer = GV.getInitializer();
+      if(ConstantAggregate* CA = dyn_cast<ConstantAggregate>(Initializer)) {
+        if(isContainOpaquePointers(CA->getType())) {
+          GV.print(llvm::errs());
+          llvm::errs() << "\n";
+          report_fatal_error("Global Variable contain opaque pointer need to be handled");
+        }
+      }
+    }
+  }
 }
 
 void VerifyAnalyzer::visitInstruction(Instruction &I) {
