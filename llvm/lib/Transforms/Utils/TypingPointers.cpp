@@ -763,7 +763,7 @@ void PointersAnalyzer::visitStoreInst(StoreInst &I) {
       Type *DataTy = I.getValueOperand()->getType();
       Type *DataPtrTy = PointerType::get(DataTy, I.getPointerAddressSpace(), true);
       IRBuilder<>B(&I);
-      Value *TypedDst = B.CreateBitCast(Dst, DataPtrTy);
+      Value *TypedDst = processPtr(B, Dst, DataPtrTy);
       I.setOperand(1, TypedDst);
       Changed |= true;
     }
