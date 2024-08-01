@@ -4,9 +4,13 @@ import subprocess
 import re
 
 caseList = ["mlirTrans/llvmir-0.ll",
+"mlirTrans/llvmir-1.ll",
+"mlirTrans/llvmir-2.ll",
+"mlirTrans/llvmir-22.ll",
 "mlirTrans/llvmir-15.ll",
 "mlirTrans/llvmir-16.ll",
 "mlirTrans/llvmir-49.ll",
+"mlirTrans/calling-conventions-0.ll",
 "mlirTrans/omptarget-array-sectioning-host-0.ll",
 "mlirTrans/omptarget-byref-bycopy-generation-device-0.ll",
 "mlirTrans/omptarget-byref-bycopy-generation-host-0.ll",
