@@ -36,6 +36,7 @@ class PointersAnalyzer : public InstVisitor<PointersAnalyzer> {
 private:
   bool Changed = false;
   std::map<Function*, bool>FunctionMap;
+  std::map<Function*, Function*> FunctionRemoveMap;
   std::vector<GlobalVariable*> GlobalList;
   std::map<GlobalVariable*, GlobalVariable*> GlobalMap;
 
@@ -96,12 +97,22 @@ public:
   bool processFunctionArguments(Function* &F);
   void processStructure(Value* SVal, StructType* NewTy=nullptr);
   void processVector(Value* VVal, VectorType* NewTy=nullptr);
+  void processArray(Value* AVal, ArrayType* NewTy=nullptr);
   void processAggregates(Module &N);
+  void processAggregateUse(Value* AggVal, Value* NewVal);
   void processPHINode(PHINode &I);
   // format the constant expression and map with the typed expressions
   void processConstantExpression(ConstantExpr *CE, GlobalVariable* OldGV=nullptr,
                                  GlobalVariable* NewGV=nullptr);
   Constant* processConstantAggregate(ConstantAggregate *CA);
+
+  Constant* processConstant(Constant* CVal);
+
+  GlobalVariable* processGlobalVariable(GlobalVariable* GV);
+
+  Value* createCast(IRBuilder<> &builder, Value* SrcVal, Type* DestTy);
+
+  Value* processOpaqueOperand(IRBuilder<> &builder, Value* SrcVal, Type* DestTy=nullptr);
 
   Value* processPtr(IRBuilder<> &builder, Value* SrcPtr, Type* TypedPtrTy);
 
@@ -215,14 +226,112 @@ void PointersAnalyzer::processNVVMReflect(Module &M) {
   }
 }
 
+static bool checkConstantContained(Constant* CT, Constant* CVal) {
+  //self contained must have ptr type inside
+  if(isContainOpaquePointers(CT->getType())) {
+    if(CT == CVal) return true;
+    if(ConstantAggregate* CA = dyn_cast<ConstantAggregate>(CT)) {
+    for(unsigned Idx = 0; Idx < CA->getNumOperands(); Idx++) {
+      Constant *Opnd = CA->getOperand(Idx);
+      if(checkConstantContained(Opnd, CVal)) {
+        return true;
+      }
+      }
+    } else if (ConstantExpr* CE = dyn_cast<ConstantExpr>(CT)) {
+    for(unsigned Idx = 0; Idx < CE->getNumOperands(); Idx++) {
+      Constant *Opnd = CE->getOperand(Idx);
+      if(checkConstantContained(Opnd, CVal)) {
+        return true;
+      }
+      }
+    }
+  }
+  return false;
+}
+
+static bool isSelfContained(GlobalVariable* GVal) {
+  if(GVal->hasInitializer()){
+    auto* Initializer = GVal->getInitializer();
+    return checkConstantContained(Initializer, GVal);
+  }
+  return false;
+}
+
+GlobalVariable* PointersAnalyzer::processGlobalVariable(GlobalVariable* GV) {
+  if(!GV->getType()->isOpaquePointerTy()) return GV;
+  if(GlobalMap.find(GV) != GlobalMap.end()) return GlobalMap[GV];
+
+  Module *M = GV->getParent();
+  Type* ValTy = GV->getValueType();
+  Type* NewTy = PointerType::get(ValTy, GV->getType()->getPointerAddressSpace(), true);
+  if(ValTy->isOpaquePointerTy()) {
+    NewTy = PointerType::get(Type::getInt8Ty(M->getContext()),
+                    GV->getType()->getPointerAddressSpace(), true);
+  }
+  LLVM_DEBUG(llvm::dbgs() << "global new type: \n";
+              NewTy->print(llvm::dbgs());
+              llvm::dbgs() << "\n"; );
+  //Copy Global
+  Constant *Initializer = nullptr;
+  auto* ValueType = GV->getValueType();
+  if(GV->hasInitializer()) {
+    Initializer = GV->getInitializer();
+    if(isContainOpaquePointers(Initializer->getType())) {
+      Initializer = processConstant(Initializer);
+    }
+    ValueType = Initializer->getType();
+  }
+  GlobalVariable *NewGV = new GlobalVariable(*M, ValueType, GV->isConstant(),
+                            GV->getLinkage(), Initializer, true, GV->getName(),
+                            nullptr, GV->getThreadLocalMode(), GV->getType()->getAddressSpace());
+  NewGV->copyAttributesFrom(GV);
+  NewGV->takeName(GV);
+  //NewGV->getComdat(GV->getComdat());
+
+  LLVM_DEBUG(llvm::dbgs() << "Create new global: \n";
+              NewGV->print(llvm::dbgs());
+              llvm::dbgs() << "\n"; );
+  GlobalMap[GV] = NewGV;
+
+  Value::user_iterator Next;
+  for(Value::user_iterator UserI = GV->user_begin(), UserE = GV->user_end();
+                        UserI != UserE; UserI = Next) {
+    Next = std::next(UserI);
+    LLVM_DEBUG(llvm::dbgs() << "find use: \n";
+              UserI->print(llvm::dbgs());
+              llvm::dbgs() << "\n"; );
+    if(Instruction* I = dyn_cast<Instruction>(*UserI)) {
+      //global variable used in common instructions
+      IRBuilder<> B(I);
+      auto *NewCast = B.CreateBitCast(NewGV, GV->getType());
+      UserI->replaceUsesOfWith(GV, NewCast);
+    } else if (Constant* CVal = dyn_cast<Constant>(*UserI)){
+      //global variable used in constant expressions/constant aggregate
+      Constant *NewCVal = processConstant(CVal);
+      if(auto* CA = dyn_cast<ConstantAggregate>(CVal)) {
+        //skip
+      } else if (ConstantExpr* CE = dyn_cast<ConstantExpr>(*UserI)) {
+        Constant *NewCast = ConstantExpr::getBitCast(NewCVal, CE->getType());
+        UserI->replaceAllUsesWith(NewCast);
+      } else {
+        Value *NewCast = ConstantExpr::getBitCast(NewCVal, CVal->getType());
+        UserI->replaceAllUsesWith(NewCast);
+      }
+    } else {
+      report_fatal_error("Unresolved global variable use");
+    }
+  }
+  return NewGV;
+}
+
 void PointersAnalyzer::processGlobals(Module &M) {
   for(auto &V : M.globals()) {
     GlobalList.push_back(&V);
-    GlobalMap.insert(std::make_pair(&V, &V));
+    //GlobalMap.insert(std::make_pair(&V, &V));
   }
 
-  for(auto GVIter : GlobalMap) {
-    GlobalVariable *GV = GVIter.first;
+  for(GlobalVariable *GV : GlobalList) {
+    if(GlobalMap.find(GV) != GlobalMap.end()) continue;
     if(GV->getType()->isOpaquePointerTy()) {
       Type* ValTy = GV->getValueType();
       Type* NewTy = PointerType::get(ValTy, GV->getType()->getPointerAddressSpace(), true);
@@ -238,23 +347,15 @@ void PointersAnalyzer::processGlobals(Module &M) {
       auto* ValueType = GV->getValueType();
       if(GV->hasInitializer()) {
         Initializer = GV->getInitializer();
-        if(ConstantAggregate* CA = dyn_cast<ConstantAggregate>(Initializer)) {
-          LLVM_DEBUG(llvm::dbgs() << "ConstantAggregate type";);
-          Initializer = processConstantAggregate(CA);
-        } else if (ConstantExpr* CE = dyn_cast<ConstantExpr>(Initializer)) {
-          processConstantExpression(CE);
-          Initializer = ConstantExpMap[CE];
-        } else if (Initializer->getType()->isOpaquePointerTy()) {
-          IRBuilder<> B(M.getContext());
-          Type* NewTy = PointerType::get(Type::getInt8Ty(M.getContext()),
-                        ValueType->getPointerAddressSpace(), true);
-          Initializer = dyn_cast<Constant>(processPtr(B, Initializer, NewTy));
+        if(isContainOpaquePointers(Initializer->getType())) {
+          Initializer = processConstant(Initializer);
         }
         ValueType = Initializer->getType();
       }
       GlobalVariable *NewGV = new GlobalVariable(M, ValueType, GV->isConstant(),
-                                GV->getLinkage(), Initializer, true, GV->getName(),
-                                nullptr, GV->getThreadLocalMode(), GV->getType()->getAddressSpace());
+                                GV->getLinkage(), Initializer, true, "",
+                                GV, GV->getThreadLocalMode(), GV->getType()->getAddressSpace(),
+                                GV->isExternallyInitialized());
       NewGV->copyAttributesFrom(GV);
       NewGV->takeName(GV);
       //NewGV->getComdat(GV->getComdat());
@@ -276,46 +377,31 @@ void PointersAnalyzer::processGlobals(Module &M) {
           IRBuilder<> B(I);
           auto *NewCast = B.CreateBitCast(NewGV, GV->getType());
           UserI->replaceUsesOfWith(GV, NewCast);
-        } else if (ConstantExpr* CE = dyn_cast<ConstantExpr>(*UserI)){
-          //global variable used in constant expressions
-          processConstantExpression(CE, GV, NewGV);
-          Constant *NewCE = ConstantExpMap[CE];
-          Constant *NewCast = ConstantExpr::getBitCast(NewCE, CE->getType());
-          UserI->replaceAllUsesWith(NewCast);
-        } else if (ConstantStruct *CStruct = dyn_cast<ConstantStruct>(*UserI)){
-          //Create a new constantStructure and insert in the structure map
-          //All the ptr in PHI should be formatted to i8*
-          std::vector<Constant*> OpndList;
-          std::vector<Type*> TypeList;
-          unsigned Idx = 0;
-          for(; Idx < CStruct->getNumOperands(); Idx++) {
-            Constant *Opnd = CStruct->getOperand(Idx);
-            if(Opnd->getType()->isOpaquePointerTy()) {
-              Type* Int8Ptr = PointerType::get(Type::getInt8Ty(M.getContext()),
-                                  Opnd->getType()->getPointerAddressSpace(), true);
-              if(GlobalMap.find(dyn_cast<GlobalVariable>(Opnd)) != GlobalMap.end()) {
-                Constant *NewOpnd = GlobalMap[dyn_cast<GlobalVariable>(Opnd)];
-                if(NewOpnd->getType() != Int8Ptr) {
-                  NewOpnd = ConstantExpr::getBitCast(NewOpnd, Int8Ptr);
-                }
-                TypeList.push_back(Int8Ptr);
-                OpndList.push_back(NewOpnd);
-              } else {
-                // the global operand hasn't been ready, skip this operation.
-                // the last global operand will finish the structure.
-                // or the PHI will handle(onstant expression).
-                break;
-              }
-            } else {
-              TypeList.push_back(Opnd->getType());
-              OpndList.push_back(Opnd);
-            }
+        } else if (GlobalVariable* RGV = dyn_cast<GlobalVariable>(*UserI)) {
+          if(GlobalMap.find(RGV) == GlobalMap.end()) {
+            GlobalVariable *NewRGV = new GlobalVariable(M, NewGV->getType(), RGV->isConstant(),
+                                RGV->getLinkage(), NewGV, true, "",
+                                RGV, RGV->getThreadLocalMode(), RGV->getType()->getAddressSpace(),
+                                RGV->isExternallyInitialized());
+            NewRGV->copyAttributesFrom(RGV);
+            NewRGV->takeName(RGV);
+            GlobalMap[RGV] = NewRGV;
+            //UserI->replaceAllUsesWith(NewRGV);
           }
-          if(Idx == CStruct->getNumOperands()) {
-            StructType *STy = StructType::get(M.getContext(), TypeList);
-            Constant *NewCStruct = ConstantStruct::get(STy, OpndList);
-            AggregateMap.insert(std::make_pair(CStruct, NewCStruct));
+        } else if (Constant* CVal = dyn_cast<Constant>(*UserI)){
+          //global variable used in constant expressions/constant aggregate
+          Constant *NewCVal = processConstant(CVal);
+          if(auto* CA = dyn_cast<ConstantAggregate>(CVal)) {
+            //skip
+          } else if (ConstantExpr* CE = dyn_cast<ConstantExpr>(*UserI)) {
+            Constant *NewCast = ConstantExpr::getBitCast(NewCVal, CE->getType());
+            UserI->replaceAllUsesWith(NewCast);
+          } else {
+            Value *NewCast = ConstantExpr::getBitCast(NewCVal, CVal->getType());
+            UserI->replaceAllUsesWith(NewCast);
           }
+        } else {
+          report_fatal_error("Unresolved global variable use");
         }
       }
     }
@@ -373,7 +459,6 @@ Value* PointersAnalyzer::processPtr(IRBuilder<> &builder, Value* SrcPtr, Type* T
   return TypedSrc;
 }
 
-
 void PointersAnalyzer::processConstantExpression(ConstantExpr *CE,
                                             GlobalVariable* OldGV,
                                             GlobalVariable* NewGV){
@@ -382,16 +467,18 @@ void PointersAnalyzer::processConstantExpression(ConstantExpr *CE,
   if (auto *GEP = dyn_cast<GEPOperator>(CE)) {
     // The new return type will be source element pointer type
     auto SETy = GEP->getSourceElementType();
+    SETy = processType(SETy);
     auto SEPtrTy = PointerType::get(SETy, GEP->getPointerAddressSpace(), true);
-    Constant *SrcPtr = dyn_cast<Constant>(GEP->getPointerOperand());
     std::vector<Value*> Idx;
     for(auto It = GEP->idx_begin(); It != GEP->idx_end(); It++) {
       Idx.push_back(*It);
     }
 
-    if(OldGV && NewGV) {
-      // The GV should be replaced
-      SrcPtr = NewGV;
+    Constant *SrcPtr = dyn_cast<Constant>(GEP->getPointerOperand());
+    if (GlobalVariable* SrcGV = dyn_cast<GlobalVariable>(SrcPtr)) {
+      if(GlobalMap.find(SrcGV) != GlobalMap.end()) {
+        SrcPtr = GlobalMap[SrcGV];
+      }
     }
 
     if(SEPtrTy == SrcPtr->getType()) {
@@ -413,9 +500,11 @@ void PointersAnalyzer::processConstantExpression(ConstantExpr *CE,
     //cast constant expression to i8*
     Type* Int8Ptr = PointerType::get(Type::getInt8Ty(CE->getContext()),
                                   BC->getType()->getPointerAddressSpace(), true);
-    // This GlobalVariable path might not really hanppen
-    if(OldGV && NewGV) {
-      SrcPtr = NewGV;
+
+    if (GlobalVariable* SrcGV = dyn_cast<GlobalVariable>(BC->getOperand(0))) {
+      if(GlobalMap.find(SrcGV) != GlobalMap.end()) {
+        SrcPtr = GlobalMap[SrcGV];
+      }
     }
 
     Constant *NewCast = ConstantExpr::getBitCast(SrcPtr, Int8Ptr);
@@ -423,10 +512,12 @@ void PointersAnalyzer::processConstantExpression(ConstantExpr *CE,
 
   } else if(auto *AC = dyn_cast<AddrSpaceCastOperator>(CE)) {
     Constant *SrcPtr = CE;
-    // always cast to i8ptr
-    if(OldGV && NewGV) {
-      SrcPtr = NewGV;
+    if (GlobalVariable* SrcGV = dyn_cast<GlobalVariable>(AC->getPointerOperand())) {
+      if(GlobalMap.find(SrcGV) != GlobalMap.end()) {
+        SrcPtr = GlobalMap[SrcGV];
+      }
     }
+    // always cast to i8ptr
     Type* I8SrcPtr = PointerType::get(Type::getInt8Ty(CE->getContext()),
                                   AC->getSrcAddressSpace(), true);
     Type* I8DstPtr = PointerType::get(Type::getInt8Ty(CE->getContext()),
@@ -438,70 +529,98 @@ void PointersAnalyzer::processConstantExpression(ConstantExpr *CE,
     ConstantExpMap[CE] = NewAC;
 
   } else if(auto * PTI= dyn_cast<PtrToIntOperator>(CE)) {
-    report_fatal_error("PtrToIntOperator ConstantExpr type need to be handle");
+    //report_fatal_error("PtrToIntOperator ConstantExpr type need to be handle");
+    IRBuilder<> B(CE->getContext());
+    Value* Opnd = PTI->getPointerOperand();
+    Value* NewOpnd = processOpaqueOperand(B, Opnd);
+    Constant *NewPTI = ConstantExpr::getPtrToInt(dyn_cast<Constant>(NewOpnd), PTI->getType());
+    ConstantExpMap[CE] = NewPTI;
   } else {
     report_fatal_error("Unknown ConstantExpr type need to be handle");
   }
 
 }
 
+
+void PointersAnalyzer::processArray(Value* AVal, ArrayType* NewTy) {
+  LLVMContext &Ctx = AVal->getContext();
+  ArrayType * ATy = dyn_cast<ArrayType>(AVal->getType());
+  if(NewTy == nullptr) {
+    NewTy = dyn_cast<ArrayType>(processType(ATy));
+  }
+  if(ConstantArray *CAY = dyn_cast<ConstantArray>(AVal)) {
+    auto *ETy = CAY->getType()->getElementType();
+    IRBuilder<> B(Ctx);
+    if(isContainOpaquePointers(ETy)) {
+      SmallVector<Constant *, 8> Opnds;
+      for(unsigned Idx = 0; Idx < CAY->getNumOperands(); Idx++) {
+        auto* NewOpnd = processConstant(CAY->getOperand(Idx));
+        // for cases that function type should be cast to i8* for fitting different function types
+        if(NewOpnd->getType() != NewTy->getElementType()) {
+          NewOpnd = dyn_cast<Constant>(createCast(B, NewOpnd, NewTy->getElementType()));
+        }
+        Opnds.push_back(NewOpnd);
+      }
+      auto* NewArray = ConstantArray::get(NewTy, Opnds);
+      AggregateMap.insert(std::make_pair(AVal, NewArray));
+    }
+  } else {
+    report_fatal_error("Need to implement array");
+  }
+}
+
+// all the constant should be handled carefully in case that missing
+// i64 ptrtoint (ptr getelementptr (i32, ptr null, i32 1) to i64)
+Constant* PointersAnalyzer::processConstant(Constant* CVal) {
+  LLVMContext &Ctx = CVal->getContext();
+  IRBuilder<> B(Ctx);
+
+  if(auto *CAY = dyn_cast<ConstantArray>(CVal)) {
+    processArray(CAY);
+    return dyn_cast<Constant>(AggregateMap[CAY]);
+  } else if (auto *CST = dyn_cast<ConstantStruct>(CVal)) {
+    processStructure(CST);
+    return dyn_cast<Constant>(AggregateMap[CST]);
+  } else if(auto* Func = dyn_cast<Function>(CVal)) {
+    if(FunctionRemoveMap.find(Func) != FunctionRemoveMap.end()) {
+      Func = FunctionRemoveMap[Func];
+    } else {
+      processFunction(Func);
+    }
+    return Func;
+  } else if(ConstantExpr *CE = dyn_cast<ConstantExpr>(CVal)) {
+    if(ConstantExpMap.find(CE) == ConstantExpMap.end()) {
+      processConstantExpression(CE);
+    }
+    return ConstantExpMap[CE];
+  } else if (ConstantAggregateZero *CZ = dyn_cast<ConstantAggregateZero>(CVal)) {
+    Type* NewTy = processType(CZ->getType());
+    return ConstantAggregateZero::get(NewTy);
+  } else if (UndefValue *UDef = dyn_cast<UndefValue>(CVal)) {
+    Type* NewTy = processType(UDef->getType());
+    return UndefValue::get(NewTy);
+  } else if (GlobalVariable* GV = dyn_cast<GlobalVariable>(CVal)) {
+    if (GlobalMap.find(GV) != GlobalMap.end()) {
+      return GlobalMap[GV];
+    } else {
+      Type* I8Ptr = PointerType::get(Type::getInt8Ty(Ctx),
+                                    CVal->getType()->getPointerAddressSpace(), true);
+      return ConstantExpr::getBitCast(CVal, I8Ptr);
+    }
+  } else if (isContainOpaquePointers(CVal->getType())) {
+    Type* I8Ptr = PointerType::get(Type::getInt8Ty(Ctx),
+                                  CVal->getType()->getPointerAddressSpace(), true);
+    return ConstantExpr::getBitCast(CVal, I8Ptr);
+  } else {
+    return CVal;
+  }
+}
+
 Constant* PointersAnalyzer::processConstantAggregate(ConstantAggregate *CAG) {
   LLVMContext &Ctx = CAG->getContext();
   if(auto *CAY = dyn_cast<ConstantArray>(CAG)) {
-    auto *ETy = CAY->getType()->getElementType();
-    //array element type contains ptr
-    if(isContainOpaquePointers(ETy)) {
-      if(ETy->isOpaquePointerTy()) {
-        Type* I8Ptr = PointerType::get(Type::getInt8Ty(Ctx),
-                                  ETy->getPointerAddressSpace(), true);
-        auto* NewATy = ArrayType::get(I8Ptr, CAY->getType()->getNumElements());
-        SmallVector<Constant *, 8> Opnds;
-        for(unsigned Idx = 0; Idx < CAY->getNumOperands(); Idx++) {
-          Constant* Elt = CAY->getOperand(Idx);
-          Constant* NewElt = ConstantExpr::getBitCast(Elt, I8Ptr);
-          Opnds.push_back(NewElt);
-        }
-        return ConstantArray::get(NewATy, Opnds);
-      } else if (auto STy = dyn_cast<StructType>(ETy)) {
-        std::vector<Type*> TyList;
-        for(auto SubTy : STy->subtypes()) {
-          if(SubTy->isAggregateType()) {
-            report_fatal_error("New nested isAggregateType need to handle");
-          } else if(SubTy->isOpaquePointerTy()) {
-            Type* Int8Ptr = PointerType::get(Type::getInt8Ty(Ctx),
-                                  SubTy->getPointerAddressSpace(), true);
-            TyList.push_back(Int8Ptr);
-          } else {
-            TyList.push_back(SubTy);
-          }
-        }
-        auto* NewSTy = StructType::get(Ctx, TyList);
-        auto* NewATy = ArrayType::get(NewSTy, CAY->getType()->getNumElements());
-        SmallVector<Constant *, 8> Opnds;
-        for(unsigned Idx = 0; Idx < CAY->getNumOperands(); Idx++) {
-          ConstantStruct* Elt = dyn_cast<ConstantStruct>(CAY->getOperand(Idx));
-          SmallVector<Constant *, 8> SOpnds;
-          for(unsigned SI = 0; SI < Elt->getNumOperands(); SI++) {
-            Constant* SElt = Elt->getOperand(SI);
-            if(SElt->getType()->isOpaquePointerTy()) {
-              Type* Int8Ptr = PointerType::get(Type::getInt8Ty(Ctx),
-                                  SElt->getType()->getPointerAddressSpace(), true);
-              if(auto* Func = dyn_cast<Function>(SElt)) {
-                processFunction(Func);
-                SElt = Func;
-              }
-              Constant* NewElt = ConstantExpr::getBitCast(SElt, Int8Ptr);
-              SOpnds.push_back(NewElt);
-            } else {
-              SOpnds.push_back(SElt);
-            }
-          }
-          auto* NewOpnd = ConstantStruct::get(NewSTy, SOpnds);
-          Opnds.push_back(NewOpnd);
-        }
-        return ConstantArray::get(NewATy, Opnds);
-      }
-    }
+    processArray(CAY);
+    return dyn_cast<Constant>(AggregateMap[CAY]);
   } else if (auto *CST = dyn_cast<ConstantStruct>(CAG)) {
     processStructure(CST);
     return dyn_cast<Constant>(AggregateMap[CST]);
@@ -562,6 +681,30 @@ void PointersAnalyzer::processVector(Value* VVal, VectorType* NewTy) {
   }
 }
 
+
+static bool isSameType(Type* A, Type* B) {
+  if(A == B) return true;
+  // A!=B
+  // none-aggregate/none-pointer type
+  if (A->getNumContainedTypes() == 0) return false;
+  //different typeID
+  if (A->getTypeID() != B->getTypeID()) return false;
+  //different subtype
+  if (A->getNumContainedTypes() != B->getNumContainedTypes())
+    return false;
+
+  for(auto Idx = 0; Idx < A->getNumContainedTypes(); Idx++) {
+    if(!isSameType(A->getContainedType(Idx), B->getContainedType(Idx)))
+    return false;
+  }
+  return true;
+
+}
+
+
+// isContainOpaquePointers can't decide if there is opaque pointers
+// becase constant expression like i64 ptrtoint (ptr getelementptr (i32, ptr null, i32 1) to i64)
+// can be anywhere
 void PointersAnalyzer::processStructure(Value* SVal, StructType* NewTy) {
   LLVMContext &Ctx = SVal->getContext();
   StructType * STy = dyn_cast<StructType>(SVal->getType());
@@ -570,22 +713,19 @@ void PointersAnalyzer::processStructure(Value* SVal, StructType* NewTy) {
   }
   if(ConstantStruct *CStruct = dyn_cast<ConstantStruct>(SVal)) {
     //Create a new constantStructure and insert in the structure map
+    IRBuilder<> B(Ctx);
     std::vector<Constant*> OpndList;
     for(unsigned Idx = 0; Idx < CStruct->getNumOperands(); Idx++) {
       Constant *Opnd = CStruct->getOperand(Idx);
-      if(Opnd->getType() != NewTy->getElementType(Idx)) {
-        Constant *NewOpnd;
-        if(ConstantExpr* CE = dyn_cast<ConstantExpr>(Opnd)) {
-          processConstantExpression(CE);
-          // new constant expression is i8*
-          NewOpnd = ConstantExpr::getBitCast(ConstantExpMap[CE], NewTy->getElementType(Idx));
-        } else {
-          NewOpnd = ConstantExpr::getBitCast(Opnd, NewTy->getElementType(Idx));
-        }
-        OpndList.push_back(NewOpnd);
-      } else {
-        OpndList.push_back(Opnd);
+      //all the constant should be handled in case that missing below:
+      //i64 ptrtoint (ptr getelementptr (i32, ptr null, i32 1) to i64)
+      Constant *NewOpnd = processConstant(Opnd);
+      // for cases that function type should be cast to i8* for fitting different function types
+      //if(NewOpnd->getType() != NewTy->getElementType(Idx)) {
+      if(!isSameType(NewOpnd->getType(), NewTy->getElementType(Idx))) {
+        NewOpnd = dyn_cast<Constant>(createCast(B, NewOpnd, NewTy->getElementType(Idx)));
       }
+      OpndList.push_back(NewOpnd);
     }
     Constant *NewCStruct = ConstantStruct::get(NewTy, OpndList);
     AggregateMap.insert(std::make_pair(CStruct, NewCStruct));
@@ -626,111 +766,7 @@ void PointersAnalyzer::processStructure(Value* SVal, StructType* NewTy) {
     }
   }
 }
-#if 0
-void PointersAnalyzer::processPHI() {
-  for(auto PHII : PHIList) {
-    Type *PHITy = PHII->getType();
-    if(PHITy->isAggregateType()) {
-      //structure type
-      if(AggregateMap.find(PHII->getOperand(0)) == AggregateMap.end()) {
-        processStructure(PHII->getOperand(0));
-      }
 
-      Type *NewPHITy = AggregateMap[PHII->getOperand(0)]->getType();
-      IRBuilder<> B(dyn_cast<Instruction>(PHII));
-      auto NewPHI = B.CreatePHI(NewPHITy, PHII->getNumIncomingValues());
-
-      for(unsigned Idx = 0; Idx <PHII->getNumIncomingValues(); Idx++) {
-        Value *Opnd = PHII->getIncomingValue(Idx);
-        if(AggregateMap.find(Opnd) == AggregateMap.end()) {
-          //The constant expression structure will be resolved here.
-          processStructure(Opnd);
-        }
-        Value * NewOpnd = AggregateMap[Opnd];
-        NewPHI->addIncoming(NewOpnd, PHII->getIncomingBlock(Idx));
-      }
-      Value::user_iterator Next;
-      for(Value::user_iterator UserI = PHII->user_begin(), UserE = PHII->user_end();
-                            UserI != UserE; UserI = Next) {
-        Next = std::next(UserI);
-        if(ExtractValueInst* ExtractI = dyn_cast<ExtractValueInst>(*UserI)) {
-          IRBuilder<> B(dyn_cast<Instruction>(*UserI));
-          Value *NewExtract = B.CreateExtractValue(NewPHI, ExtractI->getIndices());
-          if(NewExtract->getType() != ExtractI->getType()) {
-            NewExtract = B.CreateBitCast(NewExtract, ExtractI->getType());
-          }
-          ExtractI->replaceAllUsesWith(NewExtract);
-          ExtractI->eraseFromParent();
-        } else {
-          report_fatal_error("Unresolved PHI node use");
-        }
-      }
-      // remove PHI and its creation chain
-      if(PHII->user_empty()) {
-        PHII->eraseFromParent();
-      } else {
-        report_fatal_error("Unresolved PHI Node");
-      }
-    } else {
-      //ptr type, need to insert bitcast right behind the operand value.
-      LLVMContext &Ctx = PHII->getContext();
-      IRBuilder<> B(dyn_cast<Instruction>(PHII));
-      Type* Int8Ptr = PointerType::get(Type::getInt8Ty(Ctx), PHII->getType()->getPointerAddressSpace(), true);
-      auto NewPHI = B.CreatePHI(Int8Ptr, PHII->getNumIncomingValues());
-      for(unsigned Idx = 0; Idx <PHII->getNumIncomingValues(); Idx++) {
-        Value *Opnd = PHII->getIncomingValue(Idx);
-        Value * NewOpnd = nullptr;
-        if(Instruction* NormI = dyn_cast<Instruction>(Opnd)) {
-          IRBuilder<> OpndB(dyn_cast<Instruction>(NormI));
-          OpndB.SetInsertPoint(NormI->getNextNode());
-          NewOpnd = OpndB.CreateBitCast(Opnd, Int8Ptr);
-        } else if(ConstantExpr *CE = dyn_cast<ConstantExpr>(Opnd)) {
-          if(ConstantExpMap.find(CE) == ConstantExpMap.end()) {
-            processConstantExpression(CE);
-          }
-          NewOpnd = ConstantExpMap[CE];
-        } else {
-          report_fatal_error("Unresolved PHI node value");
-        }
-        NewPHI->addIncoming(NewOpnd, PHII->getIncomingBlock(Idx));
-      }
-      Value * PostCast = B.CreateBitCast(NewPHI, PHII->getType());
-      PHII->replaceAllUsesWith(PostCast);
-      PHII->eraseFromParent();
-    }
-  }
-}
-#endif
-static bool checkConstantContained(Constant* CT, Constant* CVal) {
-  //self contained must have ptr type inside
-  if(isContainOpaquePointers(CT->getType())) {
-    if(CT == CVal) return true;
-    if(ConstantAggregate* CA = dyn_cast<ConstantAggregate>(CT)) {
-    for(unsigned Idx = 0; Idx < CA->getNumOperands(); Idx++) {
-      Constant *Opnd = CA->getOperand(Idx);
-      if(checkConstantContained(Opnd, CVal)) {
-        return true;
-      }
-      }
-    } else if (ConstantExpr* CE = dyn_cast<ConstantExpr>(CT)) {
-    for(unsigned Idx = 0; Idx < CE->getNumOperands(); Idx++) {
-      Constant *Opnd = CE->getOperand(Idx);
-      if(checkConstantContained(Opnd, CVal)) {
-        return true;
-      }
-      }
-    }
-  }
-  return false;
-}
-
-static bool isSelfContained(GlobalVariable* GVal) {
-  if(GVal->hasInitializer()){
-    auto* Initializer = GVal->getInitializer();
-    return checkConstantContained(Initializer, GVal);
-  }
-  return false;
-}
 
 
 void PointersAnalyzer::removeDeadValue() {
@@ -769,7 +805,11 @@ void PointersAnalyzer::removeDeadValue() {
     }
   }
 
-  for(auto GV : GlobalList) {
+  // reverse first, then inorder, do delete twice
+  std::vector<GlobalVariable*>RemoveList;
+  for(auto RIter = GlobalList.rbegin(); RIter != GlobalList.rend(); RIter++) {
+  //for(auto GV : GlobalList) {
+    GlobalVariable* GV = *RIter;
     GV->removeDeadConstantUsers();
     //currently the reflect constant string still use mutatetype
     if(GV->getType()->isOpaquePointerTy()) {
@@ -779,19 +819,43 @@ void PointersAnalyzer::removeDeadValue() {
         //check self contained
         if(GV->hasInitializer()){
           auto* Initializer = GV->getInitializer();
+          bool isErase = true;
           Value::user_iterator Next;
           for(Value::user_iterator UserI = GV->user_begin(), UserE = GV->user_end();
                                 UserI != UserE; UserI = Next) {
             Next = std::next(UserI);
             if(!checkConstantContained(Initializer, dyn_cast<Constant>(*UserI))) {
-              report_fatal_error("Unresolved Global Vairable");
+              RemoveList.push_back(dyn_cast<GlobalVariable>(GV));
+              isErase = false;
+              break;
             }
           }
-          GV->eraseFromParent();
+          if(isErase)
+            GV->eraseFromParent();
         } else {
           report_fatal_error("Unresolved Global Vairable");
         }
       }
+    }
+  }
+  for(auto RIter = RemoveList.rbegin(); RIter != RemoveList.rend(); RIter++) {
+    GlobalVariable* GV = *RIter;
+    if(GV->getType()->isOpaquePointerTy()) {
+      if(GV->user_empty()) {
+        GV->eraseFromParent();
+      } else {
+        report_fatal_error("Unresolved Global Vairable");
+      }
+    }
+  }
+
+  for(auto FIter : FunctionRemoveMap) {
+    auto FVal = FIter.first;
+    FVal->removeDeadConstantUsers();
+    if(FVal->user_empty()) {
+      FVal->eraseFromParent();
+    } else {
+      report_fatal_error("Unresolved Function use");
     }
   }
 
@@ -814,44 +878,18 @@ void PointersAnalyzer::visitICmpInst(ICmpInst &I) {
 }
 
 void PointersAnalyzer::visitAllocaInst(AllocaInst &I) {
-  // for case %8 = alloca ptr, align 8, might only happend in llvm13 bc test
-  if(I.getAllocatedType()->isOpaquePointerTy()) {
-    IRBuilder<> B(&I);
-    Type *NewTy = PointerType::get(B.getInt8Ty(), I.getAllocatedType()->getPointerAddressSpace(), true);
-    Type *RetTy = PointerType::get(NewTy, I.getAllocatedType()->getPointerAddressSpace(), true);
-    Value *NewAlloc = B.CreateAlloca(NewTy, I.getAddressSpace(), I.getArraySize());
-    NewAlloc->mutateType(RetTy);
-    Value *TransTemp = B.CreateBitCast(NewAlloc, I.getType());
-    I.replaceAllUsesWith(TransTemp);
-    I.eraseFromParent();
-
-  }else if(isContainOpaquePointers(I.getAllocatedType())) {
+  if(isContainOpaquePointers(I.getAllocatedType())) {
     LLVMContext &Ctx = I.getContext();
     IRBuilder<> B(&I);
-    // alloc a structure type
-    if(StructType * STy = dyn_cast<StructType>(I.getAllocatedType())) {
-      std::vector<Type*> TyList;
-      for(auto SubTy : STy->subtypes()) {
-        if(SubTy->isAggregateType()) {
-          report_fatal_error("New nested isAggregateType need to handle");
-        } else if(SubTy->isOpaquePointerTy()) {
-          Type* Int8Ptr = PointerType::get(Type::getInt8Ty(Ctx), SubTy->getPointerAddressSpace(), true);
-          TyList.push_back(Int8Ptr);
-        } else {
-          TyList.push_back(SubTy);
-        }
-      }
-      auto NewTy =  StructType::get(Ctx, TyList);
-      Type *RetTy = PointerType::get(NewTy, I.getAddressSpace(), true);
-      Value *NewAlloc = B.CreateAlloca(NewTy, I.getAddressSpace(), I.getArraySize());
-      NewAlloc->mutateType(RetTy);
-      Value* TransTemp = B.CreateBitCast(NewAlloc, I.getType());
-      I.replaceAllUsesWith(TransTemp);
-      I.eraseFromParent();
-    } else {
-      report_fatal_error("New nested isAggregateType need to handle");
-    }
-  }else if(I.getType()->isOpaquePointerTy()) {
+    Type* AllocTy = I.getAllocatedType();
+    Type* NewTy = processType(AllocTy);
+    Type *RetTy = PointerType::get(NewTy, I.getAddressSpace(), true);
+    Value *NewAlloc = B.CreateAlloca(NewTy, I.getAddressSpace(), I.getArraySize());
+    NewAlloc->mutateType(RetTy);
+    Value* TransTemp = processPtr(B, NewAlloc, I.getType());
+    I.replaceAllUsesWith(TransTemp);
+    I.eraseFromParent();
+  } else if(I.getType()->isOpaquePointerTy()) {
     Type *DataTy = I.getAllocatedType();
     Type *DataPtrTy = PointerType::get(DataTy, I.getAddressSpace(), true);
     IRBuilder<> B(&I);
@@ -861,7 +899,6 @@ void PointersAnalyzer::visitAllocaInst(AllocaInst &I) {
     I.replaceAllUsesWith(TransTemp);
     I.eraseFromParent();
   }
-
 }
 
 // The point to ptr should not be happended in the really opaque pointer IR
@@ -927,22 +964,53 @@ void PointersAnalyzer::visitLoadInst(LoadInst &I) {
   }
 }
 
+Value* PointersAnalyzer::createCast(IRBuilder<> &builder, Value* SrcVal, Type* DestTy) {
+  Type* SrcTy = SrcVal->getType();
+  Value* DestVal;
+  if(SrcTy->isAggregateType()) {
+    DestVal = builder.CreateIntrinsic(Intrinsic::fake_cast,
+                      {DestTy, SrcTy}, {SrcVal});
+  } else {
+    DestVal = builder.CreateBitCast(SrcVal, DestTy);
+  }
+  return DestVal;
+}
+
+
+Value* PointersAnalyzer::processOpaqueOperand(IRBuilder<> &builder, Value* SrcVal, Type* DestTy) {
+  Type* SrcTy = SrcVal->getType();
+
+  if(DestTy == nullptr) {
+    DestTy = processType(SrcTy);
+  }
+
+  Value* DestVal;
+  if(Constant* CVal = dyn_cast<Constant>(SrcVal)) {
+    DestVal = processConstant(CVal);
+    if(DestVal->getType() != DestTy) {
+      DestVal = createCast(builder, DestVal, DestTy);
+    }
+    return DestVal;
+  } else if(isContainOpaquePointers(SrcTy)) {
+    DestVal = createCast(builder, SrcVal, DestTy);
+    return DestVal;
+  } else {
+    return SrcVal;
+  }
+}
+
 void PointersAnalyzer::visitStoreInst(StoreInst &I) {
-  if(I.getValueOperand()->getType()->isOpaquePointerTy()) {
-    // case store ptr %8, ptr* %9, align 8
-    // store i8* %8, i8** %9, align 8
-    IRBuilder<>B(&I);
-    Value *OldVal = I.getValueOperand();
-    Value *OldPtr = I.getPointerOperand();
-    Type *NewValTy = PointerType::get(B.getInt8Ty(), OldVal->getType()->getPointerAddressSpace(), true);
-    Type *NewPtrTy = PointerType::get(NewValTy, OldVal->getType()->getPointerAddressSpace(), true);
-    Value *NewVal = B.CreateBitCast(OldVal, NewValTy);
-    Value *NewPtr = B.CreateBitCast(OldPtr, NewPtrTy);
+  IRBuilder<>B(&I);
+  Value* STVal = I.getValueOperand();
+  Value *STPtr = I.getPointerOperand();
+  if(isContainOpaquePointers(STVal->getType())) {
+    Value* NewVal = processOpaqueOperand(B, STVal);
+    Type *NewPtrTy = PointerType::get(NewVal->getType(), STPtr->getType()->getPointerAddressSpace(), true);
+    Value* NewPtr = B.CreateBitCast(STPtr, NewPtrTy);
     StoreInst *NewStore = B.CreateStore(NewVal, NewPtr, I.isVolatile());
     NewStore->setAlignment(I.getAlign());
     NewStore->setAtomic(I.getOrdering(), I.getSyncScopeID());
     I.eraseFromParent();
-
   } else {
     Value *Dst = I.getPointerOperand();
     if(Dst->getType()->isOpaquePointerTy()) {
@@ -1003,58 +1071,37 @@ void PointersAnalyzer::visitAddrSpaceCastInst(AddrSpaceCastInst &I) {
 
 }
 
+
 void PointersAnalyzer::visitGetElementPtrInst(GetElementPtrInst &I) {
   LLVMContext &Ctx = I.getContext();
-  auto SrcPtr = I.getOperand(0);
+  auto* SrcPtr = I.getOperand(0);
+  auto* ElemTy = I.getSourceElementType();
   IRBuilder<> B(&I);
   auto BB = I.getParent();
 
-  if(SrcPtr->getType()->isOpaquePointerTy()) {
-    Type* SrcTy = I.getSourceElementType();
-
-    //%152 = getelementptr ptr addrspace(1), ptr addrspace(3) @global_smem, i64 %56, !dbg !35
-    if(SrcTy->isOpaquePointerTy()) {
-      //%152 = getelementptr i8* addrspace(1), i8** @global_smem, i64 %56, !dbg !35
-      SrcTy = PointerType::get(Type::getInt8Ty(Ctx), SrcTy->getPointerAddressSpace(), true);
-    } else if (isContainOpaquePointers(SrcTy)) {
-      // structure type
-      // %13 = getelementptr inbounds { i32, i32, i32, i32, ptr, i32 }, ptr %12, i64 0, i32 1
-      if(StructType * STy = dyn_cast<StructType>(SrcTy)) {
-        std::vector<Type*> TyList;
-        for(auto SubTy : STy->subtypes()) {
-          if(SubTy->isAggregateType()) {
-            report_fatal_error("New nested isAggregateType need to handle");
-          } else if(SubTy->isOpaquePointerTy()) {
-            Type* Int8Ptr = PointerType::get(Type::getInt8Ty(Ctx), SubTy->getPointerAddressSpace(), true);
-            TyList.push_back(Int8Ptr);
-          } else {
-            TyList.push_back(SubTy);
-          }
-        }
-        SrcTy =  StructType::get(Ctx, TyList);
-      } else {
-        report_fatal_error("New isAggregateType need to handle");
-      }
-    }
+  if (SrcPtr->getType()->isOpaquePointerTy()) {
 
     LLVM_DEBUG(llvm::dbgs() << "Meet GEP: \n";
                I.print(llvm::dbgs());
                llvm::dbgs() << "\n"; );
-
-    auto TypedPtrTy = PointerType::get(SrcTy, SrcPtr->getType()->getPointerAddressSpace(), true);
-    Value* TypedSrc = processPtr(B, SrcPtr, TypedPtrTy);
 
     std::vector<Value*>Idx;
     for(auto Iter = I.idx_begin(); Iter != I.idx_end(); Iter++) {
       Idx.push_back(*Iter);
     }
 
-    Value *NewGEP = B.CreateGEP(SrcTy, TypedSrc, Idx, "", I.isInBounds());
+    //%13 = getelementptr inbounds { i32, i32, i32, i32, ptr, i32 }, ptr %12, i64 0, i32 1
+    if(isContainOpaquePointers(ElemTy)) {
+      ElemTy = processType(ElemTy);
+    }
+    Type *NewPtrTy = PointerType::get(ElemTy, SrcPtr->getType()->getPointerAddressSpace(), true);
+    Value* NewPtr = processOpaqueOperand(B, SrcPtr, NewPtrTy);
+    Value *NewGEP = B.CreateGEP(ElemTy, NewPtr, Idx, "", I.isInBounds());
     //using mutateType introduce risk
-    Type *GEPRetTy = GetElementPtrInst::getGEPReturnType(SrcTy, TypedSrc, Idx, true);
+    Type *GEPRetTy = GetElementPtrInst::getGEPReturnType(ElemTy, NewPtr, Idx, true);
     NewGEP->mutateType(GEPRetTy);
 
-    Value* TransTemp = B.CreateBitCast(NewGEP, SrcPtr->getType());
+    Value* TransTemp = B.CreateBitCast(NewGEP, I.getType());
 
     I.replaceAllUsesWith(TransTemp);
     I.eraseFromParent();
@@ -1066,7 +1113,6 @@ void PointersAnalyzer::visitGetElementPtrInst(GetElementPtrInst &I) {
                llvm::dbgs() << "\n";);
     Changed |= true;
   }
-
 }
 
 
@@ -1089,58 +1135,70 @@ void PointersAnalyzer::visitCallInst(CallInst &I) {
 }
 
 
+void PointersAnalyzer::processAggregateUse(Value* AggVal, Value* NewVal) {
+  Value::user_iterator Next;
+  for(Value::user_iterator UserI = AggVal->user_begin(), UserE = AggVal->user_end();
+                        UserI != UserE; UserI = Next) {
+    Next = std::next(UserI);
+    IRBuilder<> B(dyn_cast<Instruction>(*UserI));
+    if(ExtractValueInst* ExtractI = dyn_cast<ExtractValueInst>(*UserI)) {
+      Value *NewExtract = B.CreateExtractValue(NewVal, ExtractI->getIndices());
+      if(NewExtract->getType() != ExtractI->getType()) {
+        if(ExtractI->getType()->isAggregateType()) {
+          processAggregateUse(ExtractI, NewExtract);
+        } else {
+          NewExtract = B.CreateBitCast(NewExtract, ExtractI->getType());
+        }
+      }
+      ExtractI->replaceAllUsesWith(NewExtract);
+      ExtractI->eraseFromParent();
+    } else if (ExtractElementInst* ExtractI = dyn_cast<ExtractElementInst>(*UserI)) {
+      Value *NewExtract = B.CreateExtractElement(NewVal, ExtractI->getIndexOperand());
+      if(NewExtract->getType() != ExtractI->getType()) {
+        if(ExtractI->getType()->isAggregateType()) {
+          processAggregateUse(ExtractI, NewExtract);
+        } else {
+          NewExtract = B.CreateBitCast(NewExtract, ExtractI->getType());
+        }
+      }
+      ExtractI->replaceAllUsesWith(NewExtract);
+      ExtractI->eraseFromParent();
+    } else {
+      report_fatal_error("Unresolved PHI node use");
+      //function call, phi node?
+      Value* PreCast = createCast(B, NewVal, AggVal->getType());
+      UserI->replaceUsesOfWith(AggVal, PreCast);
+    }
+  }
+}
+
 //void PointersAnalyzer::visitPHINode(PHINode &I) {
 void PointersAnalyzer::processPHINode(PHINode &I) {
   PHINode *PHII = &I;
   Type *PHITy = PHII->getType();
   if(!isContainOpaquePointers(PHITy))
     return;
+  Type *NewPHITy = processType(PHITy);
+  IRBuilder<> B(dyn_cast<Instruction>(PHII));
+  auto NewPHI = B.CreatePHI(NewPHITy, PHII->getNumIncomingValues());
+
+  for(unsigned Idx = 0; Idx <PHII->getNumIncomingValues(); Idx++) {
+    Value *Opnd = PHII->getIncomingValue(Idx);
+    Value *NewOpnd;
+    if(Opnd->getType()->isAggregateType()) {
+      NewOpnd = processOpaqueOperand(B, Opnd, NewPHITy);
+    } else if (Instruction* NormI = dyn_cast<Instruction>(Opnd)) {
+      IRBuilder<> OpndB(dyn_cast<Instruction>(NormI));
+      OpndB.SetInsertPoint(NormI->getNextNode());
+      NewOpnd = OpndB.CreateBitCast(Opnd, NewPHITy);
+    } else {
+      NewOpnd = processOpaqueOperand(B, Opnd, NewPHITy);
+    }
+    NewPHI->addIncoming(NewOpnd, PHII->getIncomingBlock(Idx));
+  }
 
   if(PHITy->isAggregateType()) {
-    //structure type
-    if(AggregateMap.find(PHII->getOperand(0)) == AggregateMap.end()) {
-      processStructure(PHII->getOperand(0));
-    }
-    Type *NewPHITy;
-    if(AggregateMap.find(PHII->getOperand(0)) != AggregateMap.end()) {
-      NewPHITy = AggregateMap[PHII->getOperand(0)]->getType();
-    } else {
-      NewPHITy = processType(PHII->getOperand(0)->getType());
-    }
-
-    IRBuilder<> B(dyn_cast<Instruction>(PHII));
-    auto NewPHI = B.CreatePHI(NewPHITy, PHII->getNumIncomingValues());
-
-    for(unsigned Idx = 0; Idx <PHII->getNumIncomingValues(); Idx++) {
-      Value *Opnd = PHII->getIncomingValue(Idx);
-      if(AggregateMap.find(Opnd) == AggregateMap.end()) {
-        //The constant expression structure will be resolved here.
-        processStructure(Opnd);
-      }
-      Value * NewOpnd;
-      if(AggregateMap.find(Opnd) != AggregateMap.end()) {
-        NewOpnd = AggregateMap[Opnd];
-      } else {
-        NewOpnd = processPtr(B, Opnd, NewPHITy);
-      }
-      NewPHI->addIncoming(NewOpnd, PHII->getIncomingBlock(Idx));
-    }
-    Value::user_iterator Next;
-    for(Value::user_iterator UserI = PHII->user_begin(), UserE = PHII->user_end();
-                          UserI != UserE; UserI = Next) {
-      Next = std::next(UserI);
-      if(ExtractValueInst* ExtractI = dyn_cast<ExtractValueInst>(*UserI)) {
-        IRBuilder<> B(dyn_cast<Instruction>(*UserI));
-        Value *NewExtract = B.CreateExtractValue(NewPHI, ExtractI->getIndices());
-        if(NewExtract->getType() != ExtractI->getType()) {
-          NewExtract = B.CreateBitCast(NewExtract, ExtractI->getType());
-        }
-        ExtractI->replaceAllUsesWith(NewExtract);
-        ExtractI->eraseFromParent();
-      } else {
-        report_fatal_error("Unresolved PHI node use");
-      }
-    }
+    processAggregateUse(PHII, NewPHI);
     // remove PHI and its creation chain
     if(PHII->user_empty()) {
       PHII->eraseFromParent();
@@ -1148,33 +1206,9 @@ void PointersAnalyzer::processPHINode(PHINode &I) {
       report_fatal_error("Unresolved PHI Node");
     }
   } else {
-    //ptr type, need to insert bitcast right behind the operand value.
-    LLVMContext &Ctx = PHII->getContext();
-    IRBuilder<> B(dyn_cast<Instruction>(PHII));
-    Type* Int8Ptr = PointerType::get(Type::getInt8Ty(Ctx), PHII->getType()->getPointerAddressSpace(), true);
-    auto NewPHI = B.CreatePHI(Int8Ptr, PHII->getNumIncomingValues());
-    for(unsigned Idx = 0; Idx <PHII->getNumIncomingValues(); Idx++) {
-      Value *Opnd = PHII->getIncomingValue(Idx);
-      Value * NewOpnd = nullptr;
-      if(Instruction* NormI = dyn_cast<Instruction>(Opnd)) {
-        IRBuilder<> OpndB(dyn_cast<Instruction>(NormI));
-        OpndB.SetInsertPoint(NormI->getNextNode());
-        NewOpnd = OpndB.CreateBitCast(Opnd, Int8Ptr);
-      } else if(ConstantExpr *CE = dyn_cast<ConstantExpr>(Opnd)) {
-        if(ConstantExpMap.find(CE) == ConstantExpMap.end()) {
-          processConstantExpression(CE);
-        }
-        NewOpnd = ConstantExpMap[CE];
-      } else {
-        report_fatal_error("Unresolved PHI node value");
-      }
-      NewPHI->addIncoming(NewOpnd, PHII->getIncomingBlock(Idx));
-    }
     Value * PostCast = B.CreateBitCast(NewPHI, PHII->getType());
     PHII->replaceAllUsesWith(PostCast);
     PHII->eraseFromParent();
-
-    //report_fatal_error("Unresolved PHI node");
   }
 
 }
@@ -1359,6 +1393,8 @@ VectorType* PointersAnalyzer::processVectorType(VectorType* VTy) {
 
 Type* PointersAnalyzer::processType(Type* Ty) {
   IRBuilder<> B(Ty->getContext());
+  if(!isContainOpaquePointers(Ty)) return Ty;
+
   if(Ty->isOpaquePointerTy()) {
     auto TypedPtrTy = PointerType::get(B.getInt8Ty(), Ty->getPointerAddressSpace(), true);
     return TypedPtrTy;
@@ -1528,6 +1564,8 @@ bool PointersAnalyzer::processFunctionArguments(Function* &F) {
           }
           CI->eraseFromParent();
         } else if (Constant* CF = dyn_cast<Constant>(*UserI)) {
+          // constant  can't use replaceUsesOfWith
+          // will be handled within the constant
           DeleteFunc = false;
         } else {
           // Fix up any BlockAddresses that refer to the function.
@@ -1552,8 +1590,14 @@ bool PointersAnalyzer::processFunctionArguments(Function* &F) {
       //MD->replaceAllUsesWith(NewMD);
     }
 
-    if(DeleteFunc)
+    if(DeleteFunc) {
       F->eraseFromParent();
+    } else {
+      //function used in constant will be captured in FunctionRemoveMap
+      // and removed at last.
+      FunctionRemoveMap.insert(std::make_pair(F, NewFn));
+    }
+
     F = NewFn;
 
     Changed |= true;
