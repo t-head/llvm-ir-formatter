@@ -495,37 +495,40 @@ void PointersAnalyzer::processConstantExpression(ConstantExpr *CE,
       ConstantExpMap[CE] = NewGEP;
     }
   } else if(auto * BC = dyn_cast<BitCastOperator>(CE)) {
-    //cast will be fold.
-    Constant *SrcPtr = CE;
-    //cast constant expression to i8*
-    Type* Int8Ptr = PointerType::get(Type::getInt8Ty(CE->getContext()),
+    Constant *SrcOpnd = dyn_cast<Constant>(BC->getOperand(0));
+    Constant *NewSrcOpnd;
+    if(BC->getType()->isOpaquePointerTy()){
+      //cast will be fold.
+      NewSrcOpnd = processConstant(SrcOpnd);
+      if(NewSrcOpnd->getType()->isOpaquePointerTy()) {
+        Type* Int8Ptr = PointerType::get(Type::getInt8Ty(CE->getContext()),
                                   BC->getType()->getPointerAddressSpace(), true);
-
-    if (GlobalVariable* SrcGV = dyn_cast<GlobalVariable>(BC->getOperand(0))) {
-      if(GlobalMap.find(SrcGV) != GlobalMap.end()) {
-        SrcPtr = GlobalMap[SrcGV];
+        auto* NewCast = ConstantExpr::getBitCast(NewSrcOpnd, Int8Ptr);
+        ConstantExpMap[CE] = NewCast;
+      } else {
+        ConstantExpMap[CE] = NewSrcOpnd;
+      }
+    } else {
+      NewSrcOpnd = processConstant(SrcOpnd);
+      if(NewSrcOpnd == SrcOpnd) {
+        ConstantExpMap[CE] = CE;
+      } else {
+        ConstantExpMap[CE] = ConstantExpr::getBitCast(NewSrcOpnd, BC->getType());
       }
     }
-
-    Constant *NewCast = ConstantExpr::getBitCast(SrcPtr, Int8Ptr);
-    ConstantExpMap[CE] = NewCast;
-
   } else if(auto *AC = dyn_cast<AddrSpaceCastOperator>(CE)) {
-    Constant *SrcPtr = CE;
-    if (GlobalVariable* SrcGV = dyn_cast<GlobalVariable>(AC->getPointerOperand())) {
-      if(GlobalMap.find(SrcGV) != GlobalMap.end()) {
-        SrcPtr = GlobalMap[SrcGV];
-      }
-    }
-    // always cast to i8ptr
-    Type* I8SrcPtr = PointerType::get(Type::getInt8Ty(CE->getContext()),
-                                  AC->getSrcAddressSpace(), true);
-    Type* I8DstPtr = PointerType::get(Type::getInt8Ty(CE->getContext()),
+    Constant* SrcOpnd = dyn_cast<Constant>(AC->getPointerOperand());
+    Constant* NewSrcOpnd = processConstant(SrcOpnd);
+    // cast to Int8*, in case that getAddrSpaceCast auto cast to ptr
+    Type* Int8Ptr = PointerType::get(Type::getInt8Ty(CE->getContext()),
+                                  SrcOpnd->getType()->getPointerAddressSpace(), true);
+    Type* DstPtrTy = PointerType::get(Type::getInt8Ty(CE->getContext()),
                                   AC->getDestAddressSpace(), true);
-    if(SrcPtr->getType() != I8SrcPtr) {
-      SrcPtr = ConstantExpr::getBitCast(SrcPtr, I8SrcPtr);
-    }
-    Constant *NewAC = ConstantExpr::getAddrSpaceCast(SrcPtr, I8DstPtr);
+    Type* NewSrcTy = NewSrcOpnd->getType();
+    if(NewSrcTy != Int8Ptr)
+      NewSrcOpnd = ConstantExpr::getBitCast(NewSrcOpnd, Int8Ptr);
+
+    Constant *NewAC = ConstantExpr::getAddrSpaceCast(NewSrcOpnd, DstPtrTy);
     ConstantExpMap[CE] = NewAC;
 
   } else if(auto * PTI= dyn_cast<PtrToIntOperator>(CE)) {
@@ -536,7 +539,8 @@ void PointersAnalyzer::processConstantExpression(ConstantExpr *CE,
     Constant *NewPTI = ConstantExpr::getPtrToInt(dyn_cast<Constant>(NewOpnd), PTI->getType());
     ConstantExpMap[CE] = NewPTI;
   } else {
-    report_fatal_error("Unknown ConstantExpr type need to be handle");
+    ConstantExpMap[CE] = CE;
+    //report_fatal_error("Unknown ConstantExpr type need to be handle");
   }
 
 }
@@ -1264,7 +1268,12 @@ void PointersAnalyzer::visitInstruction(Instruction &I) {
       I.print(llvm::errs());
       report_fatal_error("Instruction contain opaque pointer need to be handled");
     }
-
+    if(ConstantExpr* CE = dyn_cast<ConstantExpr>(opnd)) {
+      auto* NewCE = processConstant(CE);
+      if(NewCE != CE) {
+        I.replaceUsesOfWith(CE, NewCE);
+      }
+    }
   }
 }
 
@@ -1524,45 +1533,49 @@ bool PointersAnalyzer::processFunctionArguments(Function* &F) {
 
           for(unsigned Idx = 0; Idx < CI->arg_size(); Idx++) {
             Value * Arg = CI->getArgOperand(Idx);
-            if(Arg->getType()->isOpaquePointerTy()) {
-              auto TypedPtrTy = PointerType::get(B.getInt8Ty(), Arg->getType()->getPointerAddressSpace(), true);
-              Value *NewArg = B.CreateBitCast(Arg, TypedPtrTy);
-              ArgList.push_back(NewArg);
-            } else {
-              ArgList.push_back(Arg);
-            }
+            Arg = processOpaqueOperand(B, Arg);
+            ArgList.push_back(Arg);
           }
 
           SmallVector<OperandBundleDef, 1> OpBundles;
           CI->getOperandBundlesAsDefs(OpBundles);
 
-          CallBase *NewCI = nullptr;
-          if (InvokeInst *II = dyn_cast<InvokeInst>(CI)) {
-            NewCI = InvokeInst::Create(NewFn, II->getNormalDest(), II->getUnwindDest(),
-                                      ArgList, OpBundles, "", CI);
-          } else {
-            NewCI = CallInst::Create(NewFn, ArgList, OpBundles, "", CI);
-            cast<CallInst>(NewCI)->setTailCallKind(
-                cast<CallInst>(NewCI)->getTailCallKind());
-          }
-          NewCI->setCallingConv(CI->getCallingConv());
-          NewCI->setAttributes(CI->getAttributes());
-          NewCI->copyMetadata(*CI, {LLVMContext::MD_prof, LLVMContext::MD_dbg});
-
-          if(RetChange) {
-            Value* TransTemp;
-            if(CI->getType()->isAggregateType()) {
-              TransTemp = B.CreateIntrinsic(Intrinsic::fake_cast,
-                          {CI->getType(), NewCI->getType()}, NewCI);
+          if(CI->getCalledFunction() == F) {
+            // used as called function
+            CallBase *NewCI = nullptr;
+            if (InvokeInst *II = dyn_cast<InvokeInst>(CI)) {
+              NewCI = InvokeInst::Create(NewFn, II->getNormalDest(), II->getUnwindDest(),
+                                        ArgList, OpBundles, "", CI);
+            } else if (CallInst *CIT = dyn_cast<CallInst>(CI)) {
+              NewCI = CallInst::Create(NewFn, ArgList, OpBundles, "", CI);
+              cast<CallInst>(NewCI)->setTailCallKind(
+                  cast<CallInst>(NewCI)->getTailCallKind());
             } else {
-              TransTemp = processPtr(B, NewCI, CI->getType());
+              report_fatal_error("unhandled call base");
             }
-            //TransTemp = B.CreateBitCast(NewCI, CI->getType());
-            CI->replaceAllUsesWith(TransTemp);
+            NewCI->setCallingConv(CI->getCallingConv());
+            NewCI->setAttributes(CI->getAttributes());
+            NewCI->copyMetadata(*CI, {LLVMContext::MD_prof, LLVMContext::MD_dbg});
+
+            if(RetChange) {
+              Value* TransTemp;
+              if(CI->getType()->isAggregateType()) {
+                TransTemp = B.CreateIntrinsic(Intrinsic::fake_cast,
+                            {CI->getType(), NewCI->getType()}, NewCI);
+              } else {
+                TransTemp = processPtr(B, NewCI, CI->getType());
+              }
+              //TransTemp = B.CreateBitCast(NewCI, CI->getType());
+              CI->replaceAllUsesWith(TransTemp);
+            } else {
+              CI->replaceAllUsesWith(NewCI);
+            }
+            CI->eraseFromParent();
           } else {
-            CI->replaceAllUsesWith(NewCI);
+            // used as arguments
+            Value* postCast = createCast(B, NewFn, F->getType());
+            CI->replaceUsesOfWith(F, postCast);
           }
-          CI->eraseFromParent();
         } else if (Constant* CF = dyn_cast<Constant>(*UserI)) {
           // constant  can't use replaceUsesOfWith
           // will be handled within the constant
