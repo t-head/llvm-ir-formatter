@@ -1081,6 +1081,7 @@ public:
     return getPointerOperandType()->getPointerAddressSpace();
   }
 
+#if 0
   /// Returns the pointer type returned by the GEP
   /// instruction, which may be a vector of pointers.
   static Type *getGEPReturnType(Type *ElTy, Value *Ptr,
@@ -1104,11 +1105,11 @@ public:
     // Scalar GEP
     return PtrTy;
   }
-
+#endif
   /// Returns the pointer type returned by the GEP
   /// instruction, which may be a vector of pointers.
   static Type *getGEPReturnType(Type *ElTy, Value *Ptr,
-                                ArrayRef<Value *> IdxList, bool ReserveType) {
+                                ArrayRef<Value *> IdxList, bool ReserveType=true) {
     PointerType *OrigPtrTy = cast<PointerType>(Ptr->getType()->getScalarType());
     unsigned AddrSpace = OrigPtrTy->getAddressSpace();
     Type *ResultElemTy = checkGEPType(getIndexedType(ElTy, IdxList));

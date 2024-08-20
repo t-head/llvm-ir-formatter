@@ -938,34 +938,30 @@ static Value* processOperand(IRBuilder<> &B, Value *Opnd, Type *TypedPtrTy) {
 }
 
 void PointersAnalyzer::visitLoadInst(LoadInst &I) {
-  // case %18 = load ptr, ptr* %9, align 8, which might only appeared in llvm13 bc test
-  // case %18 = load i8*, i8** %9, align 8
-  if(I.getType()->isOpaquePointerTy()) {
-    IRBuilder<> B(&I);
-    Value *OldPtr = I.getPointerOperand();
-    Type *NewValTy = PointerType::get(B.getInt8Ty(), OldPtr->getType()->getPointerAddressSpace(), true);
-    Type *NewPtrTy = PointerType::get(NewValTy, OldPtr->getType()->getPointerAddressSpace(), true);
-    Value *NewPtr = processPtr(B, OldPtr, NewPtrTy);
-    LoadInst *NewLoad = B.CreateLoad(NewValTy, NewPtr, I.isVolatile());
+  IRBuilder<> B(&I);
+  Type* ValTy = processType(I.getType());
+  Value* Opnd = I.getPointerOperand();
+  Value* NewOpnd = processOpaqueOperand(B, Opnd);
+  if(NewOpnd != Opnd) {
+    Type *NewPtrTy = PointerType::get(ValTy, Opnd->getType()->getPointerAddressSpace(), true);
+    if(NewPtrTy != NewOpnd->getType()) {
+      NewOpnd = createCast(B, NewOpnd, NewPtrTy);
+    }
+    LoadInst *NewLoad = B.CreateLoad(ValTy, NewOpnd, I.isVolatile());
 
     NewLoad->setAlignment(I.getAlign());
     NewLoad->setAtomic(I.getOrdering(), I.getSyncScopeID());
 
-    Value *PostCast = B.CreateBitCast(NewLoad, I.getType());
-    I.replaceAllUsesWith(PostCast);
-    I.eraseFromParent();
-
-  } else {
-    Value *Src = I.getPointerOperand();
-    if(Src->getType()->isOpaquePointerTy()) {
-      IRBuilder<> B(&I);
-      Type *DataTy = I.getType();
-      Type *DataPtrTy = PointerType::get(DataTy, I.getPointerAddressSpace(), true);
-      Value *TypedSrc = processPtr(B, Src, DataPtrTy);
-      I.setOperand(0, TypedSrc);
-      Changed |= true;
+    if(I.getType() != ValTy) {
+      Value* PostCast = createCast(B, NewLoad, I.getType());
+      I.replaceAllUsesWith(PostCast);
+    } else {
+      I.replaceAllUsesWith(NewLoad);
     }
+
+    I.eraseFromParent();
   }
+
 }
 
 Value* PointersAnalyzer::createCast(IRBuilder<> &builder, Value* SrcVal, Type* DestTy) {
@@ -1003,28 +999,24 @@ Value* PointersAnalyzer::processOpaqueOperand(IRBuilder<> &builder, Value* SrcVa
   }
 }
 
+
 void PointersAnalyzer::visitStoreInst(StoreInst &I) {
   IRBuilder<>B(&I);
   Value* STVal = I.getValueOperand();
   Value *STPtr = I.getPointerOperand();
-  if(isContainOpaquePointers(STVal->getType())) {
-    Value* NewVal = processOpaqueOperand(B, STVal);
-    Type *NewPtrTy = PointerType::get(NewVal->getType(), STPtr->getType()->getPointerAddressSpace(), true);
-    Value* NewPtr = B.CreateBitCast(STPtr, NewPtrTy);
-    StoreInst *NewStore = B.CreateStore(NewVal, NewPtr, I.isVolatile());
+
+  Value* NewSTVal = processOpaqueOperand(B, STVal);
+  Type *NewValPtrTy = PointerType::get(NewSTVal->getType(), STPtr->getType()->getPointerAddressSpace(), true);
+  Value* NewSTPtr = processOpaqueOperand(B, STPtr);
+
+  if(NewSTPtr != STPtr || NewSTVal != STVal) {
+    if(NewValPtrTy != NewSTPtr->getType()) {
+      NewSTPtr = createCast(B, NewSTPtr, NewValPtrTy);
+    }
+    StoreInst *NewStore = B.CreateStore(NewSTVal, NewSTPtr, I.isVolatile());
     NewStore->setAlignment(I.getAlign());
     NewStore->setAtomic(I.getOrdering(), I.getSyncScopeID());
     I.eraseFromParent();
-  } else {
-    Value *Dst = I.getPointerOperand();
-    if(Dst->getType()->isOpaquePointerTy()) {
-      Type *DataTy = I.getValueOperand()->getType();
-      Type *DataPtrTy = PointerType::get(DataTy, I.getPointerAddressSpace(), true);
-      IRBuilder<>B(&I);
-      Value *TypedDst = processPtr(B, Dst, DataPtrTy);
-      I.setOperand(1, TypedDst);
-      Changed |= true;
-    }
   }
 }
 
@@ -1102,8 +1094,8 @@ void PointersAnalyzer::visitGetElementPtrInst(GetElementPtrInst &I) {
     Value* NewPtr = processOpaqueOperand(B, SrcPtr, NewPtrTy);
     Value *NewGEP = B.CreateGEP(ElemTy, NewPtr, Idx, "", I.isInBounds());
     //using mutateType introduce risk
-    Type *GEPRetTy = GetElementPtrInst::getGEPReturnType(ElemTy, NewPtr, Idx, true);
-    NewGEP->mutateType(GEPRetTy);
+    //Type *GEPRetTy = GetElementPtrInst::getGEPReturnType(ElemTy, NewPtr, Idx, true);
+    //NewGEP->mutateType(GEPRetTy);
 
     Value* TransTemp = B.CreateBitCast(NewGEP, I.getType());
 
@@ -1113,7 +1105,7 @@ void PointersAnalyzer::visitGetElementPtrInst(GetElementPtrInst &I) {
     LLVM_DEBUG(llvm::dbgs() << "New GEP: \n";
                NewGEP->print(llvm::dbgs());
                llvm::dbgs() << "\nGEP return type: ";
-               GEPRetTy->print(llvm::dbgs());
+               NewGEP->getType()->print(llvm::dbgs());
                llvm::dbgs() << "\n";);
     Changed |= true;
   }
@@ -1630,9 +1622,9 @@ void PointersAnalyzer::removeRedundentBitCast(Module &M){
                                     I != E; I = Next) {
         Next = std::next(I);
         if(BitCastInst * BI = dyn_cast<BitCastInst>(&*I)) {
-          if(BI->getOperand(0)->getType()->isOpaquePointerTy()) {
+          if(isContainOpaquePointers(BI->getOperand(0)->getType())) {
             BCListFromPtr.push_back(BI);
-          } else if (BI->getType()->isOpaquePointerTy()) {
+          } else if (isContainOpaquePointers(BI->getType())) {
             BCListToPtr.push_back(BI);
           }
         }
