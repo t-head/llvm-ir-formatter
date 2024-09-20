@@ -1119,7 +1119,13 @@ void PointersAnalyzer::visitCallInst(CallInst &I) {
     if(const InlineAsm *IA = dyn_cast<InlineAsm>(op)) {
       for(unsigned Idx = 0; Idx < CI->arg_size(); Idx++) {
         Value* Arg = CI->getArgOperand(Idx);
-        if(Arg->getType()->isOpaquePointerTy()) {
+        if(ConstantExpr* CE = dyn_cast<ConstantExpr>(Arg)) {
+          auto* NewCE = processConstant(CE);
+          if(NewCE != CE) {
+            CI->setArgOperand(Idx, NewCE);
+            Changed |= true;
+          }
+        } else if(Arg->getType()->isOpaquePointerTy()) {
           auto TypedPtrTy = PointerType::get(B.getInt8Ty(), Arg->getType()->getPointerAddressSpace(), true);
           Value *TypedSrc = B.CreateBitCast(Arg, TypedPtrTy);
           CI->setArgOperand(Idx, TypedSrc);
