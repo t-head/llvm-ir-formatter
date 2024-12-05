@@ -237,11 +237,11 @@ namespace CallingConv {
     /// Preserve X2-X15, X19-X29, SP, Z0-Z31, P0-P15.
     AArch64_SME_ABI_Support_Routines_PreserveMost_From_X2 = 103,
 
-      /// Calling convention for AliPPU code object kernels.
-    AliPPU_Kernel = 104,
+    /// Calling convention for PPU code object kernels.
+    PPU_Kernel = 104,
 
-    /// Calling convention for AliPPU code object device function.
-    AliPPU_Device = 105,
+    /// Calling convention for PPU code object device function.
+    PPU_Device = 105,
 
     /// The highest possible ID. Must be some 2^k - 1.
     MaxID = 1023

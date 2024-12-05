@@ -106,7 +106,7 @@ define void @_sdd_kernel_0d1d2d3d4d5d6c7d8d9c10d11d12d13d14c15d16d17d(ptr addrsp
   %96 = or i32 %95, %94, !dbg !38
   %97 = zext i32 %96 to i64, !dbg !38
   %98 = getelementptr half, ptr addrspace(3) @global_smem, i64 %97, !dbg !38
-  %99 = tail call { i32, i32, i32, i32 } asm sideeffect "alippu.ldmatrix.sync.aligned.m8n8.x4.shared.b16 { $0, $1, $2, $3 }, [ $4 + 0 ];", "=r,=r,=r,=r,r"(ptr addrspace(3) %98) #2, !dbg !38
+  %99 = tail call { i32, i32, i32, i32 } asm sideeffect "ppu.ldmatrix.sync.aligned.m8n8.x4.shared.b16 { $0, $1, $2, $3 }, [ $4 + 0 ];", "=r,=r,=r,=r,r"(ptr addrspace(3) %98) #2, !dbg !38
   %100 = add nsw i32 %84, -1, !dbg !39
   %101 = icmp ult i32 %100, 2, !dbg !39
   %102 = xor i32 %84, 3, !dbg !39
@@ -124,7 +124,7 @@ define void @_sdd_kernel_0d1d2d3d4d5d6c7d8d9c10d11d12d13d14c15d16d17d(ptr addrsp
   %114 = add nuw nsw i32 %112, %113, !dbg !39
   %115 = zext i32 %114 to i64, !dbg !39
   %116 = getelementptr half, ptr addrspace(3) getelementptr ([0 x i8], ptr addrspace(3) @global_smem, i64 0, i64 8192), i64 %115, !dbg !39
-  %117 = tail call { i32, i32, i32, i32 } asm sideeffect "alippu.ldmatrix.sync.aligned.m8n8.x4.shared.b16 { $0, $1, $2, $3 }, [ $4 + 0 ];", "=r,=r,=r,=r,r"(ptr addrspace(3) %116) #2, !dbg !39
+  %117 = tail call { i32, i32, i32, i32 } asm sideeffect "ppu.ldmatrix.sync.aligned.m8n8.x4.shared.b16 { $0, $1, $2, $3 }, [ $4 + 0 ];", "=r,=r,=r,=r,r"(ptr addrspace(3) %116) #2, !dbg !39
   br i1 %61, label %.lr.ph, label %._crit_edge, !dbg !42
 
 .lr.ph:                                           ; preds = %15, %.lr.ph
@@ -169,7 +169,7 @@ define void @_sdd_kernel_0d1d2d3d4d5d6c7d8d9c10d11d12d13d14c15d16d17d(ptr addrsp
   %141 = getelementptr half, ptr addrspace(3) %132, i64 %140, !dbg !38
   %142 = sext i32 %138 to i64, !dbg !38
   %143 = getelementptr half, ptr addrspace(3) %141, i64 %142, !dbg !38
-  %144 = tail call { i32, i32, i32, i32 } asm sideeffect "alippu.ldmatrix.sync.aligned.m8n8.x4.shared.b16 { $0, $1, $2, $3 }, [ $4 + 0 ];", "=r,=r,=r,=r,r"(ptr addrspace(3) %143) #2, !dbg !38
+  %144 = tail call { i32, i32, i32, i32 } asm sideeffect "ppu.ldmatrix.sync.aligned.m8n8.x4.shared.b16 { $0, $1, $2, $3 }, [ $4 + 0 ];", "=r,=r,=r,=r,r"(ptr addrspace(3) %143) #2, !dbg !38
   %145 = extractvalue { i32, i32, i32, i32 } %144, 0, !dbg !38
   %146 = extractvalue { i32, i32, i32, i32 } %144, 1, !dbg !38
   %147 = extractvalue { i32, i32, i32, i32 } %144, 2, !dbg !38
@@ -193,7 +193,7 @@ define void @_sdd_kernel_0d1d2d3d4d5d6c7d8d9c10d11d12d13d14c15d16d17d(ptr addrsp
   %165 = getelementptr half, ptr addrspace(3) %156, i64 %164, !dbg !39
   %166 = sext i32 %162 to i64, !dbg !39
   %167 = getelementptr half, ptr addrspace(3) %165, i64 %166, !dbg !39
-  %168 = tail call { i32, i32, i32, i32 } asm sideeffect "alippu.ldmatrix.sync.aligned.m8n8.x4.shared.b16 { $0, $1, $2, $3 }, [ $4 + 0 ];", "=r,=r,=r,=r,r"(ptr addrspace(3) %167) #2, !dbg !39
+  %168 = tail call { i32, i32, i32, i32 } asm sideeffect "ppu.ldmatrix.sync.aligned.m8n8.x4.shared.b16 { $0, $1, $2, $3 }, [ $4 + 0 ];", "=r,=r,=r,=r,r"(ptr addrspace(3) %167) #2, !dbg !39
   %169 = extractvalue { i32, i32, i32, i32 } %168, 0, !dbg !39
   %170 = extractvalue { i32, i32, i32, i32 } %168, 1, !dbg !39
   %171 = extractvalue { i32, i32, i32, i32 } %168, 2, !dbg !39
@@ -206,7 +206,7 @@ define void @_sdd_kernel_0d1d2d3d4d5d6c7d8d9c10d11d12d13d14c15d16d17d(ptr addrsp
   %178 = extractvalue { float, float, float, float, float, float, float, float } %123, 5, !dbg !43
   %179 = extractvalue { float, float, float, float, float, float, float, float } %123, 6, !dbg !43
   %180 = extractvalue { float, float, float, float, float, float, float, float } %123, 7, !dbg !43
-  %181 = tail call { float, float, float, float, float, float, float, float } asm sideeffect "alippu.mma.sync.aligned.m16n16k16.row.col.f32.f16.f16.f32 { $0, $1, $2, $3, $4, $5, $6, $7 }, { $8, $9, $10, $11 }, { $12, $13, $14, $15 }, { $16, $17, $18, $19, $20, $21, $22, $23 };", "=f,=f,=f,=f,=f,=f,=f,=f,r,r,r,r,r,r,r,r,0,1,2,3,4,5,6,7"(i32 %.pn40, i32 %.pn38, i32 %.pn36, i32 %.pn34, i32 %.pn52, i32 %.pn50, i32 %.pn48, i32 %.pn46, float %173, float %174, float %175, float %176, float %177, float %178, float %179, float %180) #2, !dbg !43
+  %181 = tail call { float, float, float, float, float, float, float, float } asm sideeffect "ppu.mma.sync.aligned.m16n16k16.row.col.f32.f16.f16.f32 { $0, $1, $2, $3, $4, $5, $6, $7 }, { $8, $9, $10, $11 }, { $12, $13, $14, $15 }, { $16, $17, $18, $19, $20, $21, $22, $23 };", "=f,=f,=f,=f,=f,=f,=f,=f,r,r,r,r,r,r,r,r,0,1,2,3,4,5,6,7"(i32 %.pn40, i32 %.pn38, i32 %.pn36, i32 %.pn34, i32 %.pn52, i32 %.pn50, i32 %.pn48, i32 %.pn46, float %173, float %174, float %175, float %176, float %177, float %178, float %179, float %180) #2, !dbg !43
   %182 = extractvalue { float, float, float, float, float, float, float, float } %181, 0, !dbg !43
   %183 = extractvalue { float, float, float, float, float, float, float, float } %181, 1, !dbg !43
   %184 = extractvalue { float, float, float, float, float, float, float, float } %181, 2, !dbg !43
@@ -215,7 +215,7 @@ define void @_sdd_kernel_0d1d2d3d4d5d6c7d8d9c10d11d12d13d14c15d16d17d(ptr addrsp
   %187 = extractvalue { float, float, float, float, float, float, float, float } %181, 5, !dbg !43
   %188 = extractvalue { float, float, float, float, float, float, float, float } %181, 6, !dbg !43
   %189 = extractvalue { float, float, float, float, float, float, float, float } %181, 7, !dbg !43
-  %190 = tail call { float, float, float, float, float, float, float, float } asm sideeffect "alippu.mma.sync.aligned.m16n16k16.row.col.f32.f16.f16.f32 { $0, $1, $2, $3, $4, $5, $6, $7 }, { $8, $9, $10, $11 }, { $12, $13, $14, $15 }, { $16, $17, $18, $19, $20, $21, $22, $23 };", "=f,=f,=f,=f,=f,=f,=f,=f,r,r,r,r,r,r,r,r,0,1,2,3,4,5,6,7"(i32 %145, i32 %146, i32 %147, i32 %148, i32 %169, i32 %170, i32 %171, i32 %172, float %182, float %183, float %184, float %185, float %186, float %187, float %188, float %189) #2, !dbg !43
+  %190 = tail call { float, float, float, float, float, float, float, float } asm sideeffect "ppu.mma.sync.aligned.m16n16k16.row.col.f32.f16.f16.f32 { $0, $1, $2, $3, $4, $5, $6, $7 }, { $8, $9, $10, $11 }, { $12, $13, $14, $15 }, { $16, $17, $18, $19, $20, $21, $22, $23 };", "=f,=f,=f,=f,=f,=f,=f,=f,r,r,r,r,r,r,r,r,0,1,2,3,4,5,6,7"(i32 %145, i32 %146, i32 %147, i32 %148, i32 %169, i32 %170, i32 %171, i32 %172, float %182, float %183, float %184, float %185, float %186, float %187, float %188, float %189) #2, !dbg !43
   %191 = extractvalue { float, float, float, float, float, float, float, float } %190, 0, !dbg !43
   %192 = extractvalue { float, float, float, float, float, float, float, float } %190, 1, !dbg !43
   %193 = extractvalue { float, float, float, float, float, float, float, float } %190, 2, !dbg !43
@@ -267,9 +267,9 @@ define void @_sdd_kernel_0d1d2d3d4d5d6c7d8d9c10d11d12d13d14c15d16d17d(ptr addrsp
   %230 = add i32 %119, 1, !dbg !42
   %231 = add i32 %118, 1, !dbg !42
   %232 = getelementptr half, ptr addrspace(3) %218, i64 %97, !dbg !38
-  %233 = tail call { i32, i32, i32, i32 } asm sideeffect "alippu.ldmatrix.sync.aligned.m8n8.x4.shared.b16 { $0, $1, $2, $3 }, [ $4 + 0 ];", "=r,=r,=r,=r,r"(ptr addrspace(3) %232) #2, !dbg !38
+  %233 = tail call { i32, i32, i32, i32 } asm sideeffect "ppu.ldmatrix.sync.aligned.m8n8.x4.shared.b16 { $0, $1, $2, $3 }, [ $4 + 0 ];", "=r,=r,=r,=r,r"(ptr addrspace(3) %232) #2, !dbg !38
   %234 = getelementptr half, ptr addrspace(3) %224, i64 %115, !dbg !39
-  %235 = tail call { i32, i32, i32, i32 } asm sideeffect "alippu.ldmatrix.sync.aligned.m8n8.x4.shared.b16 { $0, $1, $2, $3 }, [ $4 + 0 ];", "=r,=r,=r,=r,r"(ptr addrspace(3) %234) #2, !dbg !39
+  %235 = tail call { i32, i32, i32, i32 } asm sideeffect "ppu.ldmatrix.sync.aligned.m8n8.x4.shared.b16 { $0, $1, $2, $3 }, [ $4 + 0 ];", "=r,=r,=r,=r,r"(ptr addrspace(3) %234) #2, !dbg !39
   %236 = add i32 %124, 32, !dbg !42
   %237 = icmp slt i32 %236, %12, !dbg !42
   br i1 %237, label %.lr.ph, label %._crit_edge, !dbg !42
