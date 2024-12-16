@@ -874,7 +874,7 @@ void PointersAnalyzer::visitICmpInst(ICmpInst &I) {
     auto NewLHSTy = PointerType::get(B.getInt8Ty(), LHS->getType()->getPointerAddressSpace(), true);
     Value *NewLHS = B.CreateBitCast(LHS, NewLHSTy);
     auto NewRHSTy = PointerType::get(B.getInt8Ty(), RHS->getType()->getPointerAddressSpace(), true);
-    Value *NewRHS = B.CreateBitCast(LHS, NewRHSTy);
+    Value *NewRHS = B.CreateBitCast(RHS, NewRHSTy);
     Value *NewCmp = B.CreateICmp(I.getPredicate(), NewLHS, NewRHS);
     I.replaceAllUsesWith(NewCmp);
     I.eraseFromParent();
