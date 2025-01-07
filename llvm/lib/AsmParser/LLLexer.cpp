@@ -562,11 +562,13 @@ lltok::Kind LLLexer::LexIdentifier() {
   KEYWORD(afn);
   KEYWORD(fast);
   KEYWORD(nuw);
+  KEYWORD(nusw);
   KEYWORD(nsw);
   KEYWORD(exact);
   KEYWORD(disjoint);
   KEYWORD(inbounds);
   KEYWORD(nneg);
+  KEYWORD(samesign);
   KEYWORD(inrange);
   KEYWORD(addrspace);
   KEYWORD(section);
