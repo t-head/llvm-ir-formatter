@@ -56,7 +56,7 @@ namespace llvm {
       t_APSInt, t_APFloat,             // Value in APSIntVal/APFloatVal.
       t_Null, t_Undef, t_Zero, t_None, t_Poison, // No value.
       t_EmptyArray,                    // No value:  []
-      t_Constant,                      // Value in ConstantVal.
+      t_Constant, t_ConstantSplat,     // Value in ConstantVal.
       t_InlineAsm,                     // Value in FTy/StrVal/StrVal2/UIntVal.
       t_ConstantStruct,                // Value in ConstantStructElts.
       t_PackedConstantStruct           // Value in ConstantStructElts.
