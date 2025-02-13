@@ -250,6 +250,18 @@ public:
   }
 };
 
+/// Components of the pointer that may be captured.
+enum class CaptureComponents : uint8_t {
+  None = 0,
+  AddressIsNull = (1 << 0),
+  Address = (1 << 1) | AddressIsNull,
+  ReadProvenance = (1 << 2),
+  Provenance = (1 << 3) | ReadProvenance,
+  All = Address | Provenance,
+  LLVM_MARK_AS_BITMASK_ENUM(Provenance),
+};
+
+
 /// Debug print MemoryEffects.
 raw_ostream &operator<<(raw_ostream &OS, MemoryEffects RMRB);
 

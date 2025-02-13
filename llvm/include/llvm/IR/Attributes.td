@@ -154,6 +154,9 @@ def NoCallback : EnumAttr<"nocallback", [FnAttr]>;
 /// Function creates no aliases of pointer.
 def NoCapture : EnumAttr<"nocapture", [ParamAttr]>;
 
+/// Specify how the pointer may be captured.
+def Captures : IntAttr<"captures", [ParamAttr]>;
+
 /// Call cannot be duplicated.
 def NoDuplicate : EnumAttr<"noduplicate", [FnAttr]>;
 
