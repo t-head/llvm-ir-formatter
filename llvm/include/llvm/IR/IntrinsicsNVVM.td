@@ -1251,13 +1251,13 @@ let TargetPrefix = "nvvm" in {
       Intrinsic<[llvm_v2f16_ty], [llvm_float_ty, llvm_float_ty], [IntrNoMem, IntrNoCallback]>;
 
   def int_nvvm_f2bf16_rn : ClangBuiltin<"__nvvm_f2bf16_rn">,
-      Intrinsic<[llvm_i16_ty], [llvm_float_ty], [IntrNoMem, IntrNoCallback]>;
+      Intrinsic<[llvm_bfloat_ty], [llvm_float_ty], [IntrNoMem, IntrNoCallback]>;
   def int_nvvm_f2bf16_rn_relu : ClangBuiltin<"__nvvm_f2bf16_rn_relu">,
-      Intrinsic<[llvm_i16_ty], [llvm_float_ty], [IntrNoMem, IntrNoCallback]>;
+      Intrinsic<[llvm_bfloat_ty], [llvm_float_ty], [IntrNoMem, IntrNoCallback]>;
   def int_nvvm_f2bf16_rz : ClangBuiltin<"__nvvm_f2bf16_rz">,
-      Intrinsic<[llvm_i16_ty], [llvm_float_ty], [IntrNoMem, IntrNoCallback]>;
+      Intrinsic<[llvm_bfloat_ty], [llvm_float_ty], [IntrNoMem, IntrNoCallback]>;
   def int_nvvm_f2bf16_rz_relu : ClangBuiltin<"__nvvm_f2bf16_rz_relu">,
-       Intrinsic<[llvm_i16_ty], [llvm_float_ty], [IntrNoMem, IntrNoCallback]>;
+       Intrinsic<[llvm_bfloat_ty], [llvm_float_ty], [IntrNoMem, IntrNoCallback]>;
 
   def int_nvvm_f2tf32_rna : ClangBuiltin<"__nvvm_f2tf32_rna">,
       Intrinsic<[llvm_i32_ty], [llvm_float_ty], [IntrNoMem, IntrNoCallback]>;
@@ -1578,22 +1578,22 @@ def int_nvvm_reflect :
 
 // isspacep.{const, global, local, shared}
 def int_nvvm_isspacep_const
-  : DefaultAttrsIntrinsic<[llvm_i1_ty], [llvm_ptr_ty], 
+  : DefaultAttrsIntrinsic<[llvm_i1_ty], [llvm_ptr_ty],
               [IntrNoMem, IntrSpeculatable, NoCapture<ArgIndex<0>>],
               "llvm.nvvm.isspacep.const">,
     ClangBuiltin<"__nvvm_isspacep_const">;
 def int_nvvm_isspacep_global
-  : DefaultAttrsIntrinsic<[llvm_i1_ty], [llvm_ptr_ty], 
+  : DefaultAttrsIntrinsic<[llvm_i1_ty], [llvm_ptr_ty],
               [IntrNoMem, IntrSpeculatable, NoCapture<ArgIndex<0>>],
               "llvm.nvvm.isspacep.global">,
     ClangBuiltin<"__nvvm_isspacep_global">;
 def int_nvvm_isspacep_local
-  : DefaultAttrsIntrinsic<[llvm_i1_ty], [llvm_ptr_ty], 
+  : DefaultAttrsIntrinsic<[llvm_i1_ty], [llvm_ptr_ty],
               [IntrNoMem, IntrSpeculatable, NoCapture<ArgIndex<0>>],
               "llvm.nvvm.isspacep.local">,
     ClangBuiltin<"__nvvm_isspacep_local">;
 def int_nvvm_isspacep_shared
-  : DefaultAttrsIntrinsic<[llvm_i1_ty], [llvm_ptr_ty], 
+  : DefaultAttrsIntrinsic<[llvm_i1_ty], [llvm_ptr_ty],
               [IntrNoMem, IntrSpeculatable, NoCapture<ArgIndex<0>>],
               "llvm.nvvm.isspacep.shared">,
     ClangBuiltin<"__nvvm_isspacep_shared">;

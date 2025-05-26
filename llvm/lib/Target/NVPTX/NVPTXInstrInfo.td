@@ -583,7 +583,7 @@ multiclass CVT_FROM_FLOAT_SM80<string FromName, RegisterClass RC> {
                 Requires<[hasPTX70, hasSM80]>;
   }
 
-  defm CVT_bf16 : CVT_FROM_FLOAT_SM80<"bf16", Int16Regs>;
+  defm CVT_bf16 : CVT_FROM_FLOAT_SM80<"bf16", Float16Regs>;
 
     multiclass CVT_FROM_FLOAT_V2_SM80<string FromName, RegisterClass RC> {
     def _f32 :

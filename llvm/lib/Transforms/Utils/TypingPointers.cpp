@@ -1133,6 +1133,42 @@ void PointersAnalyzer::visitCallInst(CallInst &I) {
         }
       }
     }
+
+    StringMap<std::vector<std::string>> transInst;
+    transInst["llvm.nvvm.f2bf16.rn"] = {"cvt.rn.bf16.f32 $0, $1;", "=h,r"};
+    transInst["llvm.nvvm.f2bf16.rz"] = {"cvt.rz.bf16.f32 $0, $1;", "=h,r"};
+    transInst["llvm.nvvm.f2bf16.rn.relu"] = {"cvt.rz.relu.bf16.f32 $0, $1;", "=h,r"};
+    transInst["llvm.nvvm.f2bf16.rz.relu"] = {"cvt.rz.relu.bf16.f32 $0, $1;", "=h,r"};
+
+    auto *Callee = CI->getCalledFunction();
+    if (Callee) {
+      auto it = transInst.find(Callee->getName());
+      if (it != transInst.end()) {
+        LLVM_DEBUG(llvm::dbgs() << "Trans Inst To PTX: ";
+                   CI->print(llvm::dbgs());
+                   llvm::dbgs() << "\n";);
+
+        llvm::Type* RetTy = CI->getType();
+        Value* Arg = CI->getArgOperand(0);
+        std::string AsmStr = it->second[0];
+        std::string Constraints = it->second[1];
+        llvm::InlineAsm *IA = llvm::InlineAsm::get(
+            llvm::FunctionType::get(RetTy, {Arg->getType()}, false),
+            AsmStr, Constraints, /*hasSideEffects=*/false);
+        llvm::CallInst *NewCall = llvm::CallInst::Create(
+            IA, {Arg}, "", CI);
+        NewCall->copyMetadata(*CI, {llvm::LLVMContext::MD_dbg});
+        if (CI->isTailCall()) {
+          NewCall->setTailCall(true);
+        }
+        CI->replaceAllUsesWith(NewCall);
+        CI->eraseFromParent();
+
+        LLVM_DEBUG(llvm::dbgs() << "After Trans:       ";
+                   NewCall->print(llvm::dbgs());
+                   llvm::dbgs() << "\n";);
+      }
+    }
   }
 }
 
@@ -1502,7 +1538,7 @@ bool PointersAnalyzer::processFunctionArguments(Function* &F) {
           Value *Idx[2] = {
           ConstantInt::get(Type::getInt32Ty(Ctx), 0),
           ConstantInt::get(Type::getInt32Ty(Ctx), 0)};
-          //in the legacy version, the reflect is like 
+          //in the legacy version, the reflect is like
           //%1 = call i32 @__nvvm_reflect(i8* getelementptr inbounds ([11 x i8], [11 x i8]* @.str, i32 0, i32 0))
           auto TypedTy = GV->getValueType();
           auto RetTy = PointerType::get(B.getInt8Ty(), Arg->getType()->getPointerAddressSpace(), true);
@@ -1624,7 +1660,7 @@ void PointersAnalyzer::removeRedundentBitCast(Module &M){
     std::vector<BitCastInst*> BCListFromPtr;
     for(BasicBlock &BB : F) {
       BasicBlock::iterator Next;
-      for (BasicBlock::iterator I = BB.begin(), E = BB.end(); 
+      for (BasicBlock::iterator I = BB.begin(), E = BB.end();
                                     I != E; I = Next) {
         Next = std::next(I);
         if(BitCastInst * BI = dyn_cast<BitCastInst>(&*I)) {
@@ -1741,7 +1777,7 @@ bool PointersAnalyzer::processFunction(Function* &F) {
     //process function body
     for (BasicBlock &BB : *F) {
       BasicBlock::iterator Next;
-      for (BasicBlock::iterator I = BB.begin(), E = BB.end(); 
+      for (BasicBlock::iterator I = BB.begin(), E = BB.end();
                                     I != E; I = Next) {
         Next = std::next(I);
         visit(*I);
