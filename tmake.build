@@ -39,7 +39,9 @@ elif [ "${PPU_HOST_ARCH}" == "x86_64" ]; then
   cmake --version
 fi
 
-cmake -G Ninja -DCMAKE_BUILD_TYPE=${buildtype} -DLLVM_ENABLE_ASSERTIONS=${ENABLE_ASSERT}  \
+cmake -G Ninja -DCMAKE_BUILD_TYPE=${buildtype} \
+    -DLLVM_ENABLE_ASSERTIONS=${ENABLE_ASSERT}  \
+    -DLLVM_ENABLE_TERMINFO=OFF \
     ../llvm -DLLVM_ENABLE_PROJECTS="llvm" -DCMAKE_INSTALL_PREFIX="./output" ${cross}
 ninja
 '

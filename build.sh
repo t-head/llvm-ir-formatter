@@ -25,13 +25,17 @@ done
 if [ ! -d $BASEDIR/$BUILD_DIR ]
 then
     rm -rf $BUILD_DIR && mkdir $BUILD_DIR && cd $BUILD_DIR
-    cmake -G Ninja -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DLLVM_ENABLE_ASSERTIONS=${ENABLE_ASSERT}  \
+    cmake -G Ninja -DCMAKE_BUILD_TYPE=${BUILD_TYPE} \
+    -DLLVM_ENABLE_ASSERTIONS=${ENABLE_ASSERT}  \
+    -DLLVM_ENABLE_TERMINFO=OFF \
     ../llvm -DLLVM_ENABLE_PROJECTS="llvm" -DCMAKE_INSTALL_PREFIX="./output" \
     && ninja \
     && ./bin/llvm-lit ${BASEDIR}/llvm/test/tools/llvm-irformatter/
 else
     cd $BUILD_DIR
-    cmake -G Ninja -DCMAKE_BUILD_TYPE=${BUILD_TYPE} -DLLVM_ENABLE_ASSERTIONS=${ENABLE_ASSERT}  \
+    cmake -G Ninja -DCMAKE_BUILD_TYPE=${BUILD_TYPE} \
+    -DLLVM_ENABLE_ASSERTIONS=${ENABLE_ASSERT}  \
+    -DLLVM_ENABLE_TERMINFO=OFF \
     ../llvm -DLLVM_ENABLE_PROJECTS="llvm" -DCMAKE_INSTALL_PREFIX="./output" \
     && ninja \
     && ./bin/llvm-lit ${BASEDIR}/llvm/test/tools/llvm-irformatter/
