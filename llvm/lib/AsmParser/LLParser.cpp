@@ -1365,9 +1365,6 @@ bool LLParser::parseUnnamedAttrGrp() {
       parseToken(lltok::rbrace, "expected end of attribute group"))
     return true;
 
-  if (!R->second.hasAttributes())
-    return error(AttrGrpLoc, "attribute group has no attributes");
-
   return false;
 }
 
