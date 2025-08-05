@@ -197,9 +197,9 @@ enum Kind {
   kw_inaccessiblemem,
 
   // Legacy memory attributes:
-  kw_argmemonly,
-  kw_inaccessiblememonly,
-  kw_inaccessiblemem_or_argmemonly,
+  // kw_argmemonly,
+  // kw_inaccessiblememonly,
+  // kw_inaccessiblemem_or_argmemonly,
 
   // Captures attribute:
   kw_address,

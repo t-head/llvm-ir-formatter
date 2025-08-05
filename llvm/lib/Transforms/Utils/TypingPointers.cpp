@@ -116,7 +116,7 @@ public:
 
   Value* processPtr(IRBuilder<> &builder, Value* SrcPtr, Type* TypedPtrTy);
 
-  void removeRedundentBitCast(Module &M);
+  void removeRedundantBitCast(Module &M);
   void removeDeadValue();
   void removeFakeCast(Module &M);
 
@@ -154,7 +154,7 @@ bool PointersAnalyzer::runOnModule(Module& M) {
 
   removeFakeCast(M);
 
-  removeRedundentBitCast(M);
+  removeRedundantBitCast(M);
 
   LLVM_DEBUG(llvm::dbgs() << "final module: \n";
              M.print(llvm::dbgs(), nullptr);
@@ -1046,7 +1046,7 @@ void PointersAnalyzer::visitIntToPtrInst(IntToPtrInst &I) {
 }
 void PointersAnalyzer::visitBitCastInst(BitCastInst &I) {
   //All the ptr related Bitcasts wil be handled in function
-  // removeRedundentBitCast
+  // removeRedundantBitCast
   //Instructions will be skipped at this monment
   return;
 }
@@ -1460,6 +1460,7 @@ bool PointersAnalyzer::processFunctionArguments(Function* &F) {
   IRBuilder<> B(F->getContext());
   FunctionType* FuncTy = F->getFunctionType();
   std::vector<llvm::Type *> ParamsTys;
+  std::map<unsigned, Type *> ByValParamNo2Type;
   // all function need change because of potential function reference(function pointer)
   bool needChange = true;
   bool ParamChange = false;
@@ -1468,7 +1469,15 @@ bool PointersAnalyzer::processFunctionArguments(Function* &F) {
   ConstantAsMetadata *MD = llvm::ConstantAsMetadata::getIfExists(F);
   for(unsigned Idx = 0; Idx < FuncTy->getNumParams(); Idx++) {
     Type* ParamTy = FuncTy->getParamType(Idx);
-    if(isContainOpaquePointers(ParamTy)) {
+    if(F->hasParamAttribute(Idx, Attribute::ByVal)){
+      LLVM_DEBUG(llvm::errs() <<"param No." << Idx << " has ByVal\n";);
+      Attribute ByValAttr = F->getParamAttribute(Idx, Attribute::ByVal);
+      Type * ByValType = ByValAttr.getValueAsType();
+      Type *NewPtrTy = PointerType::get(ByValType, ParamTy->getPointerAddressSpace(), true);
+      ByValParamNo2Type[Idx] = NewPtrTy;
+      // ParamsTys.push_back(processType(ParamTy));
+      ParamsTys.push_back(NewPtrTy);
+    }else if(isContainOpaquePointers(ParamTy)) {
       Type* NewTy = processType(ParamTy);
       ParamsTys.push_back(NewTy);
       ParamChange |= true;
@@ -1567,9 +1576,23 @@ bool PointersAnalyzer::processFunctionArguments(Function* &F) {
 
           for(unsigned Idx = 0; Idx < CI->arg_size(); Idx++) {
             Value * Arg = CI->getArgOperand(Idx);
-            Arg = processOpaqueOperand(B, Arg);
+            if(ByValParamNo2Type.count(Idx)){
+              Arg = processOpaqueOperand(B, Arg, ByValParamNo2Type[Idx]);
+            }else{
+              Arg = processOpaqueOperand(B, Arg);
+            }
             ArgList.push_back(Arg);
           }
+
+          LLVM_DEBUG(
+            llvm::dbgs() << "ArgList size: " << ArgList.size() << "\n";
+            llvm::dbgs() << "ArgList: ";
+                      for(auto elem : ArgList){
+                        elem->print(llvm::dbgs());
+                        llvm::dbgs() << "\n";
+                      }
+                     llvm::dbgs() << "\n"; 
+          );
 
           SmallVector<OperandBundleDef, 1> OpBundles;
           CI->getOperandBundlesAsDefs(OpBundles);
@@ -1654,7 +1677,7 @@ bool PointersAnalyzer::processFunctionArguments(Function* &F) {
 }
 
 
-void PointersAnalyzer::removeRedundentBitCast(Module &M){
+void PointersAnalyzer::removeRedundantBitCast(Module &M){
   for(Function &F : M) {
     std::vector<BitCastInst*> BCListToPtr;
     std::vector<BitCastInst*> BCListFromPtr;

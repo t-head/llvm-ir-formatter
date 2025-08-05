@@ -277,8 +277,14 @@ bool LLParser::validateEndOfModule(bool UpgradeDebugInfo) {
 
   // Look for intrinsic functions and CallInst that need to be upgraded.  We use
   // make_early_inc_range here because we may remove some functions.
-  for (Function &F : llvm::make_early_inc_range(*M))
+  for (Function &F : llvm::make_early_inc_range(*M)){
+    // errs() << "get FnName: " << F.getName() << "\n";
     UpgradeCallsToIntrinsic(&F);
+    /// FIXME: is it right to skip
+    // if(F.hasFnAttribute(Attribute::AttrKind::Memory)){
+    //   F.removeFnAttr(Attribute::AttrKind::Memory);
+    // }
+  }
 
   if (UpgradeDebugInfo)
     llvm::UpgradeDebugInfo(*M);
@@ -1481,6 +1487,12 @@ bool LLParser::parseEnumAttribute(Attribute::AttrKind Attr, AttrBuilder &B,
     return parseInitializesAttr(B);
   case Attribute::Captures:
     return parseCapturesAttr(B);
+  case Attribute::DeadOnUnwind:
+    Lex.Lex();
+    return false;
+  case Attribute::Writable:
+    Lex.Lex();
+    return false;
   default:
     B.addAttribute(Attr);
     Lex.Lex();

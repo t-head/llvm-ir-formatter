@@ -342,6 +342,16 @@ def UseSampleProfile : StrBoolAttr<"use-sample-profile">;
 def DenormalFPMath : ComplexStrAttr<"denormal-fp-math", [FnAttr]>;
 def DenormalFPMathF32 : ComplexStrAttr<"denormal-fp-math-f32", [FnAttr]>;
 
+// For Attributes in higher llvm to ir-formatter
+def DeadOnUnwind : EnumAttr<"dead_on_unwind", [ParamAttr]>;
+def Writable : EnumAttr<"writable", [ParamAttr]>;
+
+// For MemoryEffect Attributes
+def ArgMemOnly : EnumAttr<"argmemonly", [FnAttr]>;
+def InaccessibleMemOnly : EnumAttr<"inaccessiblememonly", [FnAttr]>;
+def InaccessibleMemOrArgMemOnly : EnumAttr<"inaccessiblemem_or_argmemonly",
+                                           [FnAttr]>;
+
 class CompatRule<string F> {
   // The name of the function called to check the attribute of the caller and
   // callee and decide whether inlining should be allowed. The function's

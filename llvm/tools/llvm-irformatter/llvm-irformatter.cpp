@@ -37,6 +37,7 @@
 #include "llvm/Transforms/IPO/StripDeadPrototypes.h"
 #include "llvm/Transforms/IPO/StripSymbols.h"
 #include "llvm/Transforms/Utils/TypingPointers.h"
+#include "llvm/Transforms/Utils/TransMemoryAttr.h"
 #include "llvm/IR/LegacyPassManager.h"
 #include <memory>
 #include <utility>
@@ -67,6 +68,11 @@ static cl::opt<bool> TypingPtrs("type-pointers",
 static cl::opt<bool> VerifyPtrs("verify-pointers",
                               cl::desc("Check no opaque pointers"),
                               cl::init(false),
+                              cl::cat(FormatterCat));
+
+static cl::opt<bool> TransMemAttr("trans-memory-attributes",
+                              cl::desc("Transform all memory access attributes"),
+                              cl::init(true),
                               cl::cat(FormatterCat));
 
 static cl::opt<bool> OutputAssembly("S",
@@ -120,6 +126,8 @@ int main(int argc, char **argv) {
   if(VerifyPtrs)
     PM.addPass(VerifyPointers());
 
+  if(TransMemAttr)
+    PM.addPass(TransMemoryAttr());
 
   if (OutputAssembly)
     PM.addPass(PrintModulePass(Out.os(), "", PreserveAssemblyUseListOrder));
