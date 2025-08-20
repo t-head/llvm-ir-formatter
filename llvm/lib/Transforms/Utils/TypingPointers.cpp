@@ -45,6 +45,7 @@ private:
 
   std::map<Value*, Value*> AggregateMap;
   std::map<Value*, std::vector<Value*>> AggregateChain;
+  std::map<Value*, Value*> ReplaceValue; // <new, old> 
 
   //constant map, hold the global vairable and constant expression.
   //TODO: GlobalMap&ConstantMap should be Merged here
@@ -99,7 +100,7 @@ public:
   void processVector(Value* VVal, VectorType* NewTy=nullptr);
   void processArray(Value* AVal, ArrayType* NewTy=nullptr);
   void processAggregates(Module &N);
-  void processAggregateUse(Value* AggVal, Value* NewVal);
+  void processAggregateAndVectorUse(Value* AggVal, Value* NewVal);
   void processPHINode(PHINode &I);
   // format the constant expression and map with the typed expressions
   void processConstantExpression(ConstantExpr *CE, GlobalVariable* OldGV=nullptr,
@@ -673,6 +674,22 @@ void PointersAnalyzer::processVector(Value* VVal, VectorType* NewTy) {
         auto *NewCast = B.CreatePtrToInt(NewAgg, PtrCast->getType());
         PtrCast->replaceAllUsesWith(NewCast);
         PtrCast->eraseFromParent();
+      } else if (SelectInst* SelectI = dyn_cast<SelectInst>(*UserI)) {
+        Value* OriginTrue = SelectI->getTrueValue();
+        Value* OriginFalse = SelectI->getFalseValue();
+        if (ReplaceValue.find(OriginFalse) != ReplaceValue.end())
+          OriginFalse = ReplaceValue[OriginFalse];
+        if (ReplaceValue.find(OriginTrue) != ReplaceValue.end())
+          OriginTrue = ReplaceValue[OriginTrue];
+        if (AggregateMap.find(OriginTrue) != AggregateMap.end() &&
+            AggregateMap.find(OriginFalse) != AggregateMap.end()) {
+          auto *NewSelct =
+              B.CreateSelect(SelectI->getCondition(), AggregateMap[OriginTrue],
+                             AggregateMap[OriginFalse]);
+          NewSelct = processPtr(B, NewSelct, SelectI->getType());
+          SelectI->replaceAllUsesWith(NewSelct);
+          SelectI->eraseFromParent();
+        }
       } else {
         OtherUse = true;
       }
@@ -681,6 +698,7 @@ void PointersAnalyzer::processVector(Value* VVal, VectorType* NewTy) {
       IRBuilder<> B(dyn_cast<Instruction>(VVal));
       Value *NewVal = processPtr(B, NewAgg, VVal->getType());
       VVal->replaceAllUsesWith(NewVal);
+      ReplaceValue.insert({NewVal, VVal});
     }
   }
 }
@@ -1173,7 +1191,7 @@ void PointersAnalyzer::visitCallInst(CallInst &I) {
 }
 
 
-void PointersAnalyzer::processAggregateUse(Value* AggVal, Value* NewVal) {
+void PointersAnalyzer::processAggregateAndVectorUse(Value* AggVal, Value* NewVal) {
   Value::user_iterator Next;
   for(Value::user_iterator UserI = AggVal->user_begin(), UserE = AggVal->user_end();
                         UserI != UserE; UserI = Next) {
@@ -1183,7 +1201,7 @@ void PointersAnalyzer::processAggregateUse(Value* AggVal, Value* NewVal) {
       Value *NewExtract = B.CreateExtractValue(NewVal, ExtractI->getIndices());
       if(NewExtract->getType() != ExtractI->getType()) {
         if(ExtractI->getType()->isAggregateType()) {
-          processAggregateUse(ExtractI, NewExtract);
+          processAggregateAndVectorUse(ExtractI, NewExtract);
         } else {
           NewExtract = B.CreateBitCast(NewExtract, ExtractI->getType());
         }
@@ -1194,7 +1212,7 @@ void PointersAnalyzer::processAggregateUse(Value* AggVal, Value* NewVal) {
       Value *NewExtract = B.CreateExtractElement(NewVal, ExtractI->getIndexOperand());
       if(NewExtract->getType() != ExtractI->getType()) {
         if(ExtractI->getType()->isAggregateType()) {
-          processAggregateUse(ExtractI, NewExtract);
+          processAggregateAndVectorUse(ExtractI, NewExtract);
         } else {
           NewExtract = B.CreateBitCast(NewExtract, ExtractI->getType());
         }
@@ -1235,8 +1253,8 @@ void PointersAnalyzer::processPHINode(PHINode &I) {
     NewPHI->addIncoming(NewOpnd, PHII->getIncomingBlock(Idx));
   }
 
-  if(PHITy->isAggregateType()) {
-    processAggregateUse(PHII, NewPHI);
+  if(PHITy->isAggregateType() || PHITy->isVectorTy()) {
+    processAggregateAndVectorUse(PHII, NewPHI);
     // remove PHI and its creation chain
     if(PHII->user_empty()) {
       PHII->eraseFromParent();
