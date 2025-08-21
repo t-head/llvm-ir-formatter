@@ -40,6 +40,9 @@ private:
   std::vector<GlobalVariable*> GlobalList;
   std::map<GlobalVariable*, GlobalVariable*> GlobalMap;
 
+  // Holds metadata as intrinsic argument
+  SmallSet<MDNode*, 8> MDContainer;
+
   std::vector<PHINode*> PHIList;
   std::map<Constant*, Constant*>ConstantExpMap;
 
@@ -1012,6 +1015,10 @@ Value* PointersAnalyzer::processOpaqueOperand(IRBuilder<> &builder, Value* SrcVa
   } else if(isContainOpaquePointers(SrcTy)) {
     DestVal = createCast(builder, SrcVal, DestTy);
     return DestVal;
+  } else if (MetadataAsValue *MAV = dyn_cast<MetadataAsValue>(SrcVal)) {
+    if (auto MD = dyn_cast<MDNode>(MAV->getMetadata()))
+      MDContainer.insert(MD);
+    return SrcVal;
   } else {
     return SrcVal;
   }
@@ -1717,7 +1724,9 @@ void PointersAnalyzer::removeRedundantBitCast(Module &M){
     //find the pair that
     // bitcast typedptr to ptr
     // bitcast ptr to typedptr
-    for(auto BIT : BCListToPtr) {
+    while (!BCListToPtr.empty()) {
+      auto BIT = BCListToPtr.back();
+      BCListToPtr.pop_back();
       LLVM_DEBUG(llvm::dbgs() << "find bitcast to ptr: ";
                   BIT->print(llvm::dbgs());
                   llvm::dbgs() << "\n"; );
@@ -1741,14 +1750,21 @@ void PointersAnalyzer::removeRedundantBitCast(Module &M){
                         BI->print(llvm::dbgs());
                         llvm::dbgs() << "\n"; );
             //merge bitcast
-            Value* TransNew = B.CreateBitCast(Src, BI->getType());
+            Value *TransNew = B.CreateBitCast(Src, BI->getType());
+            BitCastInst *NewBI = dyn_cast<BitCastInst>(TransNew);
+            if (isContainOpaquePointers(NewBI->getType())) {
+              BCListToPtr.push_back(NewBI);
+            }
             BI->replaceAllUsesWith(TransNew);
             BI->eraseFromParent();
           }
         }
       }
       if(BIT->use_empty()) {
-        BIT->eraseFromParent();
+        ValueAsMetadata *VAM = ValueAsMetadata::get(BIT);
+        MetadataAsValue *MAV = MetadataAsValue::get(M.getContext(), VAM);
+        if (!MAV || MAV->use_empty())
+          BIT->eraseFromParent();
       }
     }
   }
@@ -1833,6 +1849,11 @@ void PointersAnalyzer::processFunctions(Module& M) {
   for (auto &Iter : FunctionMap) {
     Function *F = Iter.first;
     processFunction(F);
+  }
+  if (!MDContainer.empty()) {
+    NamedMDNode *NMD = M.getOrInsertNamedMetadata("fmt.container");
+    for (auto MD : MDContainer)
+      NMD->addOperand(MD);
   }
 }
 
