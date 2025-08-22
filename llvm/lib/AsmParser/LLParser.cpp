@@ -2231,7 +2231,8 @@ bool LLParser::parseOptionalDerefAttrBytes(lltok::Kind AttrKind,
   if (!EatIfPresent(lltok::rparen))
     return error(ParenLoc, "expected ')'");
   if (!Bytes)
-    return error(DerefLoc, "dereferenceable bytes must be non-zero");
+    // allow dereferenceable bytes to be zero
+    return false;
   return false;
 }
 
