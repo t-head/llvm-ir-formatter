@@ -1139,6 +1139,7 @@ void PointersAnalyzer::visitGetElementPtrInst(GetElementPtrInst &I) {
 
 void PointersAnalyzer::visitCallInst(CallInst &I) {
   IRBuilder<> B(&I);
+  LLVMContext &Ctx = I.getContext();
   if(CallInst *CI = dyn_cast<CallInst>(&I)) {
     const Value * op = CI->getCalledOperand();
     if(const InlineAsm *IA = dyn_cast<InlineAsm>(op)) {
@@ -1157,6 +1158,7 @@ void PointersAnalyzer::visitCallInst(CallInst &I) {
           Changed |= true;
         }
       }
+      return;
     }
 
     StringMap<std::vector<std::string>> transInst;
@@ -1192,6 +1194,37 @@ void PointersAnalyzer::visitCallInst(CallInst &I) {
         LLVM_DEBUG(llvm::dbgs() << "After Trans:       ";
                    NewCall->print(llvm::dbgs());
                    llvm::dbgs() << "\n";);
+      }
+    } else {
+      Value *CallVal = CI->getCalledOperand();
+      //indirect call
+      if(CallVal->getType()->isOpaquePointerTy()) {
+        //Ctx.VoidPtrTy;
+        llvm::Type* RetTy = CI->getType();
+        Type* NewRetTy = processType(RetTy);
+        std::vector<Value *> NewArgs;
+        std::vector<Type *> NewArgsTys;
+        for(unsigned Idx = 0; Idx < CI->arg_size(); Idx++) {
+          Value* Arg = CI->getArgOperand(Idx);
+          Value* NewArg = processOpaqueOperand(B, Arg);
+          NewArgs.push_back(NewArg);
+          NewArgsTys.push_back(NewArg->getType());
+        }
+        FunctionType* NewFTy = FunctionType::get(NewRetTy, NewArgsTys, false);
+        Type* NewFPtrTy = PointerType::get(NewFTy, CallVal->getType()->getPointerAddressSpace(), true);
+
+        Value* NewCallVal = B.CreatePointerCast(CallVal, NewFPtrTy);
+        CallInst* NewCall = B.CreateCall(NewFTy, NewCallVal, NewArgs);
+        NewCall->copyMetadata(*CI, {llvm::LLVMContext::MD_dbg});
+        if (CI->isTailCall()) {
+          NewCall->setTailCall(true);
+        }
+        NewCall->setCallingConv(CI->getCallingConv());
+        NewCall->setAttributes(CI->getAttributes());
+        NewCall->copyMetadata(*CI, {LLVMContext::MD_prof, LLVMContext::MD_dbg});
+        Value* CastInst = B.CreateBitCast(NewCall, RetTy);
+        CI->replaceAllUsesWith(CastInst);
+        CI->eraseFromParent();
       }
     }
   }

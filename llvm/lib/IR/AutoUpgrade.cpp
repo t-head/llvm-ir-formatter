@@ -4732,8 +4732,8 @@ bool llvm::UpgradeModuleFlags(Module &M) {
       if (auto *Behavior =
               mdconst::dyn_extract_or_null<ConstantInt>(Op->getOperand(0))) {
         uint64_t V = Behavior->getLimitedValue();
-        if (V == Module::Error || V == Module::Max)
-          SetBehavior(Module::Min);
+        if (V == Module::Error || V == Module::Min)
+          SetBehavior(Module::Max);
       }
     }
     // Upgrade "PIE Level" from Error to Max.
