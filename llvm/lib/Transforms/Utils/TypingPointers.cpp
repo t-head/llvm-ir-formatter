@@ -104,7 +104,7 @@ public:
   void processArray(Value* AVal, ArrayType* NewTy=nullptr);
   void processAggregates(Module &N);
   void processAggregateAndVectorUse(Value* AggVal, Value* NewVal);
-  void processPHINode(PHINode &I);
+  void processPHINode(IRBuilder<> &NonPhiBuilder, PHINode &I);
   // format the constant expression and map with the typed expressions
   void processConstantExpression(ConstantExpr *CE, GlobalVariable* OldGV=nullptr,
                                  GlobalVariable* NewGV=nullptr);
@@ -437,8 +437,20 @@ void PointersAnalyzer::processAggregates(Module& M) {
       }
     }
   }
-  for(auto* PHI : PHIList) {
-    processPHINode(*PHI);
+
+  BasicBlock *CurBB = nullptr;
+  IRBuilder<> NonPhiBuilder(M.getContext());
+  for (auto *PHI : PHIList) {
+    bool ResetNonPhiInsertPt = false;
+    if (CurBB == nullptr || CurBB != PHI->getParent()) {
+      CurBB = PHI->getParent();
+      ResetNonPhiInsertPt = true;
+    }
+
+    if (ResetNonPhiInsertPt) {
+      NonPhiBuilder.SetInsertPoint(CurBB, CurBB->getFirstInsertionPt());
+    }
+    processPHINode(NonPhiBuilder, *PHI);
   }
 }
 
@@ -1164,19 +1176,20 @@ void PointersAnalyzer::visitCallInst(CallInst &I) {
     StringMap<std::vector<std::string>> transInst;
     transInst["llvm.nvvm.f2bf16.rn"] = {"cvt.rn.bf16.f32 $0, $1;", "=h,r"};
     transInst["llvm.nvvm.f2bf16.rz"] = {"cvt.rz.bf16.f32 $0, $1;", "=h,r"};
-    transInst["llvm.nvvm.f2bf16.rn.relu"] = {"cvt.rz.relu.bf16.f32 $0, $1;", "=h,r"};
-    transInst["llvm.nvvm.f2bf16.rz.relu"] = {"cvt.rz.relu.bf16.f32 $0, $1;", "=h,r"};
+    transInst["llvm.nvvm.f2bf16.rn.relu"] = {"cvt.rz.relu.bf16.f32 $0, $1;",
+                                             "=h,r"};
+    transInst["llvm.nvvm.f2bf16.rz.relu"] = {"cvt.rz.relu.bf16.f32 $0, $1;",
+                                             "=h,r"};
 
     auto *Callee = CI->getCalledFunction();
     if (Callee) {
       auto it = transInst.find(Callee->getName());
       if (it != transInst.end()) {
         LLVM_DEBUG(llvm::dbgs() << "Trans Inst To PTX: ";
-                   CI->print(llvm::dbgs());
-                   llvm::dbgs() << "\n";);
+                   CI->print(llvm::dbgs()); llvm::dbgs() << "\n";);
 
-        llvm::Type* RetTy = CI->getType();
-        Value* Arg = CI->getArgOperand(0);
+        llvm::Type *RetTy = CI->getType();
+        Value *Arg = CI->getArgOperand(0);
         std::string AsmStr = it->second[0];
         std::string Constraints = it->second[1];
         llvm::InlineAsm *IA = llvm::InlineAsm::get(
@@ -1269,7 +1282,7 @@ void PointersAnalyzer::processAggregateAndVectorUse(Value* AggVal, Value* NewVal
 }
 
 //void PointersAnalyzer::visitPHINode(PHINode &I) {
-void PointersAnalyzer::processPHINode(PHINode &I) {
+void PointersAnalyzer::processPHINode(IRBuilder<> &NonPhiBuilder, PHINode &I) {
   PHINode *PHII = &I;
   Type *PHITy = PHII->getType();
   if(!isContainOpaquePointers(PHITy))
@@ -1302,7 +1315,7 @@ void PointersAnalyzer::processPHINode(PHINode &I) {
       report_fatal_error("Unresolved PHI Node");
     }
   } else {
-    Value * PostCast = B.CreateBitCast(NewPHI, PHII->getType());
+    Value * PostCast = NonPhiBuilder.CreateBitCast(NewPHI, PHII->getType());
     PHII->replaceAllUsesWith(PostCast);
     PHII->eraseFromParent();
   }
@@ -1912,9 +1925,9 @@ bool VerifyAnalyzer::runOnModule(Module &M) {
 
 
 void VerifyAnalyzer::visitFunction(Function &F) {
-  FunctionType* FuncTy = F.getFunctionType();
-  for(auto *EltTy : FuncTy->params()) {
-    if(isContainOpaquePointers(EltTy)) {
+  FunctionType *FuncTy = F.getFunctionType();
+  for (auto *EltTy : FuncTy->params()) {
+    if (isContainOpaquePointers(EltTy)) {
       F.print(llvm::errs());
       llvm::errs() << "\n";
       report_fatal_error("Function contain opaque pointer need to be handled");
