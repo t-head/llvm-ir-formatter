@@ -348,6 +348,7 @@ void PointersAnalyzer::processGlobals(Module &M) {
                  llvm::dbgs() << "\n"; );
       //Copy Global
       Constant *Initializer = nullptr;
+      bool ReserveType = true;
       auto* ValueType = GV->getValueType();
       if(GV->hasInitializer()) {
         Initializer = GV->getInitializer();
@@ -356,10 +357,12 @@ void PointersAnalyzer::processGlobals(Module &M) {
         }
         ValueType = Initializer->getType();
       }
-      GlobalVariable *NewGV = new GlobalVariable(M, ValueType, GV->isConstant(),
-                                GV->getLinkage(), Initializer, true, "",
-                                GV, GV->getThreadLocalMode(), GV->getType()->getAddressSpace(),
-                                GV->isExternallyInitialized());
+      if (ValTy->isPointerTy() && !GV->hasInitializer())
+        ReserveType = false;
+      GlobalVariable *NewGV = new GlobalVariable(
+            M, ValueType, GV->isConstant(), GV->getLinkage(), Initializer,
+            ReserveType, "", GV, GV->getThreadLocalMode(),
+            GV->getType()->getAddressSpace(), GV->isExternallyInitialized());
       NewGV->copyAttributesFrom(GV);
       NewGV->takeName(GV);
       //NewGV->getComdat(GV->getComdat());
@@ -1938,6 +1941,8 @@ void VerifyAnalyzer::visitFunction(Function &F) {
 void VerifyAnalyzer::visitModule(Module &M) {
   for(auto &GV : M.globals()) {
     if(GV.getType()->isOpaquePointerTy()) {
+      if(!GV.hasInitializer())
+        continue;
       GV.print(llvm::errs());
       llvm::errs() << "\n";
       report_fatal_error("Global Variable contain opaque pointer need to be handled");
