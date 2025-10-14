@@ -104,7 +104,7 @@ public:
   void processArray(Value* AVal, ArrayType* NewTy=nullptr);
   void processAggregates(Module &N);
   void processAggregateAndVectorUse(Value* AggVal, Value* NewVal);
-  void processPHINode(IRBuilder<> &NonPhiBuilder, PHINode &I);
+  void processPHINode(PHINode &I);
   // format the constant expression and map with the typed expressions
   void processConstantExpression(ConstantExpr *CE, GlobalVariable* OldGV=nullptr,
                                  GlobalVariable* NewGV=nullptr);
@@ -441,19 +441,8 @@ void PointersAnalyzer::processAggregates(Module& M) {
     }
   }
 
-  BasicBlock *CurBB = nullptr;
-  IRBuilder<> NonPhiBuilder(M.getContext());
   for (auto *PHI : PHIList) {
-    bool ResetNonPhiInsertPt = false;
-    if (CurBB == nullptr || CurBB != PHI->getParent()) {
-      CurBB = PHI->getParent();
-      ResetNonPhiInsertPt = true;
-    }
-
-    if (ResetNonPhiInsertPt) {
-      NonPhiBuilder.SetInsertPoint(CurBB, CurBB->getFirstInsertionPt());
-    }
-    processPHINode(NonPhiBuilder, *PHI);
+    processPHINode(*PHI);
   }
 }
 
@@ -1285,7 +1274,7 @@ void PointersAnalyzer::processAggregateAndVectorUse(Value* AggVal, Value* NewVal
 }
 
 //void PointersAnalyzer::visitPHINode(PHINode &I) {
-void PointersAnalyzer::processPHINode(IRBuilder<> &NonPhiBuilder, PHINode &I) {
+void PointersAnalyzer::processPHINode(PHINode &I) {
   PHINode *PHII = &I;
   Type *PHITy = PHII->getType();
   if(!isContainOpaquePointers(PHITy))
@@ -1318,11 +1307,14 @@ void PointersAnalyzer::processPHINode(IRBuilder<> &NonPhiBuilder, PHINode &I) {
       report_fatal_error("Unresolved PHI Node");
     }
   } else {
-    Value * PostCast = NonPhiBuilder.CreateBitCast(NewPHI, PHII->getType());
+    // set the non-phi insertPt in place, in case the insert point instruction
+    // changed without any notification.
+    IRBuilder<> NonPhiBuilder(NewPHI->getParent(),
+                              NewPHI->getParent()->getFirstInsertionPt());
+    Value *PostCast = NonPhiBuilder.CreateBitCast(NewPHI, PHII->getType());
     PHII->replaceAllUsesWith(PostCast);
     PHII->eraseFromParent();
   }
-
 }
 
 void PointersAnalyzer::visitExtractElementInst(ExtractElementInst &I) {
