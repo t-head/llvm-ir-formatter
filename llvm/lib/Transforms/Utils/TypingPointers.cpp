@@ -180,6 +180,14 @@ bool static isContainOpaquePointers(Type *Ty) {
   }
 }
 
+// Finds first non alloca instruction in the entry block of a function.
+static Instruction *getFirstNonAllocaInTheEntryBlock(Function *F) {
+  for (Instruction &I : F->getEntryBlock())
+    if (!isa<AllocaInst>(&I))
+      return &I;
+  llvm_unreachable("no terminator in the entry block");
+}
+
 void PointersAnalyzer::collectAggregates(Instruction &I) {
   if(InsertValueInst * InsertI = dyn_cast<InsertValueInst>(&I)) {
     if(isa<UndefValue>(InsertI->getAggregateOperand()) ||
@@ -1286,15 +1294,12 @@ void PointersAnalyzer::processPHINode(PHINode &I) {
   for(unsigned Idx = 0; Idx <PHII->getNumIncomingValues(); Idx++) {
     Value *Opnd = PHII->getIncomingValue(Idx);
     Value *NewOpnd;
-    if(Opnd->getType()->isAggregateType()) {
-      NewOpnd = processOpaqueOperand(B, Opnd, NewPHITy);
-    } else if (Instruction* NormI = dyn_cast<Instruction>(Opnd)) {
-      IRBuilder<> OpndB(dyn_cast<Instruction>(NormI));
-      OpndB.SetInsertPoint(NormI->getNextNode());
-      NewOpnd = OpndB.CreateBitCast(Opnd, NewPHITy);
+    if (Instruction *NormI = dyn_cast<Instruction>(Opnd)) {
+      B.SetInsertPoint(NormI->getNextNode());
     } else {
-      NewOpnd = processOpaqueOperand(B, Opnd, NewPHITy);
+      B.SetInsertPoint(getFirstNonAllocaInTheEntryBlock(I.getFunction()));
     }
+    NewOpnd = processOpaqueOperand(B, Opnd, NewPHITy);
     NewPHI->addIncoming(NewOpnd, PHII->getIncomingBlock(Idx));
   }
 
