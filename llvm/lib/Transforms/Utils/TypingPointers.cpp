@@ -6,18 +6,26 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/Analysis/ValueTracking.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/TargetPassConfig.h"
+#include "llvm/IR/DerivedTypes.h"
+#include "llvm/IR/Function.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/InstVisitor.h"
+#include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicsNVPTX.h"
 #include "llvm/IR/InlineAsm.h"
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/Constant.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Metadata.h"
+#include "llvm/IR/ReplaceConstant.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/Pass.h"
+#include "llvm/Support/Casting.h"
 #include "llvm/Transforms/Utils.h"
 #include "llvm/Support/Process.h"
 #include "llvm/IR/PassManager.h"
@@ -83,6 +91,7 @@ public:
 
   void visitCallInst(CallInst &I);
   void visitReturnInst(ReturnInst &I);
+  void visitVAArgInst(VAArgInst &I);
 
   //void visitLandingPadInst(LandingPadInst &I);
 
@@ -148,9 +157,29 @@ bool PointersAnalyzer::runOnModule(Module& M) {
 
   processNVVMReflect(M);
 
+  SmallVector<GlobalVariable *, 16> ConstToInsts;
+  for (auto &V : M.globals()) {
+    ConstToInsts.push_back(&V);
+    // GlobalMap.insert(std::make_pair(&V, &V));
+  }
+  SmallVector<Constant *, 8> ConvertList(ConstToInsts.begin(),
+                                         ConstToInsts.end());
+  convertUsersOfConstantsToInstructions(ConvertList);
+
   processGlobals(M);
 
   processAggregates(M);
+
+  // FIXME: Constant to instruction second, Avoid the Constant introduced when
+  // handling global variables
+  ConstToInsts.clear();
+  for (auto &V : M.globals()) {
+    ConstToInsts.push_back(&V);
+    // GlobalMap.insert(std::make_pair(&V, &V));
+  }
+  SmallVector<Constant *, 8> ConvertList1(ConstToInsts.begin(),
+                                         ConstToInsts.end());
+  convertUsersOfConstantsToInstructions(ConvertList1);
 
   processFunctions(M);
 
@@ -1085,6 +1114,14 @@ void PointersAnalyzer::visitBitCastInst(BitCastInst &I) {
   //All the ptr related Bitcasts wil be handled in function
   // removeRedundantBitCast
   //Instructions will be skipped at this monment
+  // IRBuilder<> B(&I);
+  // if (I.getType()->isOpaquePointerTy()) {
+  //   Value *NewVal = B.CreateBitCast(I.getOperand(0), PointerType::get(B.getInt8Ty(), I.getType()->getPointerAddressSpace(), true));
+  //   if (NewVal != I.getOperand(0)) {
+  //     I.replaceAllUsesWith(NewVal);
+  //     I.eraseFromParent();
+  //   }
+  // }
   return;
 }
 
@@ -1476,6 +1513,28 @@ void PointersAnalyzer::visitReturnInst(ReturnInst &I) {
   }
 }
 
+void PointersAnalyzer::visitVAArgInst(VAArgInst &I) {
+  Value *PVal = I.getPointerOperand();
+  Type *PType = PVal->getType();
+  Type *NewTy = processType(PType);
+  // FIXME: alloca va_arg val is i8**, others is i8*
+  if (AllocaInst *AI = dyn_cast<AllocaInst>(getUnderlyingObject(PVal))) {
+    if (AI->getAllocatedType()->isPointerTy()) {
+      NewTy = PointerType::get(NewTy, PVal->getType()->getPointerAddressSpace(),
+                               true);
+    }
+  }
+
+  IRBuilder<> B(&I);
+  if (PType != NewTy) {
+    PVal = B.CreateBitCast(PVal, NewTy);
+  }
+  Type *NewValTy = processType(I.getType());
+  VAArgInst *NewI = B.CreateVAArg(PVal, NewValTy);
+  I.replaceAllUsesWith(NewI);
+  I.eraseFromParent();
+}
+
 StructType* PointersAnalyzer::processStructType(StructType* STy) {
   std::vector<Type*> TyList;
   LLVMContext &Ctx = STy->getContext();
@@ -1644,12 +1703,16 @@ bool PointersAnalyzer::processFunctionArguments(Function* &F) {
         if(CallBase *CI = dyn_cast<CallBase>(*UserI)) {
           IRBuilder<> B(CI);
           std::vector<Value *> ArgList;
-
+          bool RebuildCall = CI->getCalledFunction() == F;
           for(unsigned Idx = 0; Idx < CI->arg_size(); Idx++) {
             Value * Arg = CI->getArgOperand(Idx);
-            if(ByValParamNo2Type.count(Idx)){
+            if (isa<Function>(Arg) && Arg == F) {
+              Arg->replaceAllUsesWith(NewFn);
+            }
+            // FIXME: Global replace
+            if (ByValParamNo2Type.count(Idx)) {
               Arg = processOpaqueOperand(B, Arg, ByValParamNo2Type[Idx]);
-            }else{
+            } else {
               Arg = processOpaqueOperand(B, Arg);
             }
             ArgList.push_back(Arg);
@@ -1668,7 +1731,7 @@ bool PointersAnalyzer::processFunctionArguments(Function* &F) {
           SmallVector<OperandBundleDef, 1> OpBundles;
           CI->getOperandBundlesAsDefs(OpBundles);
 
-          if(CI->getCalledFunction() == F) {
+          if(RebuildCall) {
             // used as called function
             CallBase *NewCI = nullptr;
             if (InvokeInst *II = dyn_cast<InvokeInst>(CI)) {
@@ -1747,70 +1810,70 @@ bool PointersAnalyzer::processFunctionArguments(Function* &F) {
   return false;
 }
 
-
-void PointersAnalyzer::removeRedundantBitCast(Module &M){
-  for(Function &F : M) {
-    std::vector<BitCastInst*> BCListToPtr;
-    std::vector<BitCastInst*> BCListFromPtr;
-    for(BasicBlock &BB : F) {
+void PointersAnalyzer::removeRedundantBitCast(Module &M) {
+  for (Function &F : M) {
+    SmallVector<BitCastInst *, 16> BCListToPtr;
+    SmallVector<BitCastInst *, 16> BCListFromPtr;
+    for (BasicBlock &BB : F) {
+      BCListFromPtr.clear();
+      BCListToPtr.clear();
       BasicBlock::iterator Next;
-      for (BasicBlock::iterator I = BB.begin(), E = BB.end();
-                                    I != E; I = Next) {
+      for (BasicBlock::iterator I = BB.begin(), E = BB.end(); I != E;
+           I = Next) {
         Next = std::next(I);
-        if(BitCastInst * BI = dyn_cast<BitCastInst>(&*I)) {
-          if(isContainOpaquePointers(BI->getOperand(0)->getType())) {
-            BCListFromPtr.push_back(BI);
-          } else if (isContainOpaquePointers(BI->getType())) {
+        if (BitCastInst *BI = dyn_cast<BitCastInst>(&*I)) {
+          if (isContainOpaquePointers(BI->getType())) {
             BCListToPtr.push_back(BI);
+          } else if (isContainOpaquePointers(BI->getOperand(0)->getType())) {
+            BCListFromPtr.push_back(BI);
           }
         }
       }
-    }
 
-    //find the pair that
-    // bitcast typedptr to ptr
-    // bitcast ptr to typedptr
-    while (!BCListToPtr.empty()) {
-      auto BIT = BCListToPtr.back();
-      BCListToPtr.pop_back();
-      LLVM_DEBUG(llvm::dbgs() << "find bitcast to ptr: ";
-                  BIT->print(llvm::dbgs());
-                  llvm::dbgs() << "\n"; );
-      Value *Src = BIT->getOperand(0);
-      Type *SrcTy = Src->getType();
+      // find the pair that
+      //  bitcast typedptr to ptr
+      //  bitcast ptr to typedptr
+      reverse(BCListToPtr);
+      while (!BCListToPtr.empty()) {
+        auto BIT = BCListToPtr.back();
+        BCListToPtr.pop_back();
+        LLVM_DEBUG(llvm::dbgs() << "find bitcast to ptr: ";
+                   BIT->print(llvm::dbgs()); llvm::dbgs() << "\n";);
+        Value *Src = BIT->getOperand(0);
+        Type *SrcTy = Src->getType();
 
-      Value::user_iterator Next;
-      for(Value::user_iterator UserI = BIT->user_begin(), UserE = BIT->user_end();
-                            UserI != UserE; UserI = Next) {
-        Next = std::next(UserI);
-        if(BitCastInst *BI = dyn_cast<BitCastInst>(*UserI)) {
-          IRBuilder<> B(BI);
-          if(BI->getType() == SrcTy) {
-            LLVM_DEBUG(llvm::dbgs() << "eliminate reversed bitcast: ";
-                        BI->print(llvm::dbgs());
-                        llvm::dbgs() << "\n"; );
-            BI->replaceAllUsesWith(Src);
-            BI->eraseFromParent();
-          } else {
-            LLVM_DEBUG(llvm::dbgs() << "merge bitcast: ";
-                        BI->print(llvm::dbgs());
-                        llvm::dbgs() << "\n"; );
-            //merge bitcast
-            Value *TransNew = B.CreateBitCast(Src, BI->getType());
-            BitCastInst *NewBI = dyn_cast<BitCastInst>(TransNew);
-            if (isContainOpaquePointers(NewBI->getType())) {
-              BCListToPtr.push_back(NewBI);
+        Value::user_iterator Next;
+        for (Value::user_iterator UserI = BIT->user_begin(),
+                                  UserE = BIT->user_end();
+             UserI != UserE; UserI = Next) {
+          Next = std::next(UserI);
+          if (BitCastInst *BI = dyn_cast<BitCastInst>(*UserI)) {
+            IRBuilder<> B(BI);
+            if (BI->getType() == SrcTy) {
+              LLVM_DEBUG(llvm::dbgs() << "eliminate reversed bitcast: ";
+                         BI->print(llvm::dbgs()); llvm::dbgs() << "\n";);
+              BI->replaceAllUsesWith(Src);
+              BI->eraseFromParent();
+            } else {
+              LLVM_DEBUG(llvm::dbgs() << "merge bitcast: ";
+                         BI->print(llvm::dbgs()); llvm::dbgs() << "\n";);
+              // merge bitcast
+              Value *TransNew = B.CreateBitCast(Src, BI->getType());
+              BitCastInst *NewBI = dyn_cast<BitCastInst>(TransNew);
+              if (NewBI && isContainOpaquePointers(NewBI->getType())) {
+                BCListToPtr.push_back(NewBI);
+              }
+              BI->replaceAllUsesWith(TransNew);
+              BI->eraseFromParent();
             }
-            BI->replaceAllUsesWith(TransNew);
-            BI->eraseFromParent();
           }
         }
-      }
-      if(BIT->use_empty()) {
-        ValueAsMetadata *VAM = ValueAsMetadata::get(BIT);
-        MetadataAsValue *MAV = MetadataAsValue::get(M.getContext(), VAM);
-        if (!MAV || MAV->use_empty())
-          BIT->eraseFromParent();
+        if (BIT->use_empty()) {
+          ValueAsMetadata *VAM = ValueAsMetadata::get(BIT);
+          MetadataAsValue *MAV = MetadataAsValue::get(M.getContext(), VAM);
+          if (!MAV || MAV->use_empty())
+            BIT->eraseFromParent();
+        }
       }
     }
   }
