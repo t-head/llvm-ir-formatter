@@ -942,6 +942,21 @@ static bool UpgradeIntrinsicFunction1(Function *F, Function *&NewFn) {
       Intrinsic::ID ID = IsLifetimeStart ?
         Intrinsic::lifetime_start : Intrinsic::invariant_start;
       auto Args = F->getFunctionType()->params();
+
+      if (IsLifetimeStart && F->arg_size() == 1) {
+        rename(F);
+        LLVMContext &Ctx = F->getParent()->getContext();
+        Module *M = F->getParent();
+        Type *Tys[] = {Type::getInt64Ty(Ctx), Args[0]};
+        FunctionType *NewFTy =
+            FunctionType::get(Type::getVoidTy(Ctx), Tys, false);
+        NewFn =
+            cast<Function>(M->getOrInsertFunction(
+                                Intrinsic::getName(ID, Tys, M, NewFTy), NewFTy)
+                               .getCallee());
+        return true;
+      }
+
       Type* ObjectPtr[1] = {Args[1]};
       if (F->getName() != Intrinsic::getName(ID, ObjectPtr, F->getParent())) {
         rename(F);
@@ -956,6 +971,21 @@ static bool UpgradeIntrinsicFunction1(Function *F, Function *&NewFn) {
         Intrinsic::lifetime_end : Intrinsic::invariant_end;
 
       auto Args = F->getFunctionType()->params();
+
+      if (IsLifetimeEnd && F->arg_size() == 1) {
+        rename(F);
+        LLVMContext &Ctx = F->getParent()->getContext();
+        Module *M = F->getParent();
+        Type *Tys[] = {Type::getInt64Ty(Ctx), Args[0]};
+        FunctionType *NewFTy =
+            FunctionType::get(Type::getVoidTy(Ctx), Tys, false);
+        NewFn =
+            cast<Function>(M->getOrInsertFunction(
+                                Intrinsic::getName(ID, Tys, M, NewFTy), NewFTy)
+                               .getCallee());
+        return true;
+      }
+
       Type* ObjectPtr[1] = {Args[IsLifetimeEnd ? 1 : 2]};
       if (F->getName() != Intrinsic::getName(ID, ObjectPtr, F->getParent())) {
         rename(F);
@@ -4376,6 +4406,27 @@ void llvm::UpgradeIntrinsicCall(CallBase *CI, Function *NewFn) {
 
   case Intrinsic::thread_pointer: {
     NewCall = Builder.CreateCall(NewFn, {});
+    break;
+  }
+
+  case Intrinsic::lifetime_start:
+  case Intrinsic::lifetime_end: {
+    if (CI->arg_size() != 1) {
+      DefaultCase();
+      return;
+    }
+    Value *Ptr = CI->getArgOperand(0);
+    int64_t LifetimeSize = -1;
+    if (const AllocaInst *AI = dyn_cast<AllocaInst>(Ptr)) {
+      const DataLayout &DL = AI->getModule()->getDataLayout();
+      if (auto AllocaSize = AI->getAllocationSize(DL)) {
+        LifetimeSize = int64_t(*AllocaSize);
+      }
+    }
+    LLVMContext &Ctx = CI->getContext();
+    Value *Size =ConstantInt::get(Type::getInt64Ty(Ctx), LifetimeSize, true);
+    // Create a new call with an added i64<size> argument.
+    NewCall = Builder.CreateCall(NewFn, {Size, Ptr});
     break;
   }
 
