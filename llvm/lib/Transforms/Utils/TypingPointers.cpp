@@ -106,6 +106,7 @@ public:
   void processNVVMReflect(Module &M);
   void processFunctions(Module &M);
   void processGlobals(Module &M);
+  void processIdentifiedStructTypes(Module &M);
   bool processFunction(Function* &F);
   bool processFunctionArguments(Function* &F);
   void processStructure(Value* SVal, StructType* NewTy=nullptr);
@@ -182,6 +183,8 @@ bool PointersAnalyzer::runOnModule(Module& M) {
   convertUsersOfConstantsToInstructions(ConvertList1);
 
   processFunctions(M);
+
+  processIdentifiedStructTypes(M);
 
   removeDeadValue();
 
@@ -363,6 +366,17 @@ GlobalVariable* PointersAnalyzer::processGlobalVariable(GlobalVariable* GV) {
     }
   }
   return NewGV;
+}
+
+void PointersAnalyzer::processIdentifiedStructTypes(Module &M) {
+  for (auto &STy : M.getIdentifiedStructTypes()) {
+    StructType *NewSTy = dyn_cast<StructType>(processType(STy));
+    LLVM_DEBUG(llvm::dbgs() << "dump type: "; STy->print(llvm::dbgs());
+               llvm::dbgs() << "\n"; llvm::dbgs() << "\tnew type: ";
+               NewSTy->print(llvm::dbgs()); llvm::dbgs() << "\n";);
+    if(NewSTy != STy)
+      STy->setBody(NewSTy->getArrayElementType());
+  }
 }
 
 void PointersAnalyzer::processGlobals(Module &M) {
