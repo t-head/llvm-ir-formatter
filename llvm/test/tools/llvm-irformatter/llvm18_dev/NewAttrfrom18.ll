@@ -1,4 +1,5 @@
 ; RUN: llvm-irformatter -S -verify-pointers < %s | FileCheck %s
+; focus on Attributes: hggcnoyield dead_on_unwind writable
 
 ; ModuleID = 'LLVMDialectModule'
 source_filename = "LLVMDialectModule"
@@ -16,7 +17,7 @@ define internal void @__ppukernel_float2half_f16(ptr dead_on_unwind noalias noca
   ret void
 }
 
-attributes #0 = { alwaysinline convergent mustprogress nofree norecurse nosync nounwind null_pointer_is_valid willreturn memory(argmem: write) "frame-pointer"="all" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="ppu001" "target-features"="+ppu001,+ptx32" }
+attributes #0 = { alwaysinline convergent mustprogress nofree norecurse nosync hggcnoyield nounwind null_pointer_is_valid willreturn memory(argmem: write) "frame-pointer"="all" "no-trapping-math"="true" "stack-protector-buffer-size"="8" "target-cpu"="ppu001" "target-features"="+ppu001,+ptx32" }
 
 !llvm.build.commands = !{!0}
 !ppu.module.id = !{!1}

@@ -345,6 +345,7 @@ def DenormalFPMathF32 : ComplexStrAttr<"denormal-fp-math-f32", [FnAttr]>;
 // For Attributes in higher llvm to ir-formatter
 def DeadOnUnwind : EnumAttr<"dead_on_unwind", [ParamAttr]>;
 def Writable : EnumAttr<"writable", [ParamAttr]>;
+def HggcNoYield : EnumAttr<"hggcnoyield", [FnAttr]>;
 
 // For MemoryEffect Attributes
 def ArgMemOnly : EnumAttr<"argmemonly", [FnAttr]>;
