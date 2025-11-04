@@ -1721,7 +1721,12 @@ bool PointersAnalyzer::processFunctionArguments(Function* &F) {
           for(unsigned Idx = 0; Idx < CI->arg_size(); Idx++) {
             Value * Arg = CI->getArgOperand(Idx);
             if (isa<Function>(Arg) && Arg == F) {
-              Arg->replaceAllUsesWith(NewFn);
+              Value *NewArg = NewFn;
+              Type *ArgType = Arg->getType();
+              if (ArgType && (ArgType != NewFn->getType())) {
+                NewArg = B.CreateBitCast(NewFn, ArgType);
+              }
+              Arg->replaceAllUsesWith(NewArg);
             }
             // FIXME: Global replace
             if (ByValParamNo2Type.count(Idx)) {
