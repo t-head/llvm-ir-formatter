@@ -8367,8 +8367,19 @@ bool LLParser::parseUseListOrder(PerFunctionState *PFS) {
 
   Value *V;
   SmallVector<unsigned, 16> Indexes;
-  if (parseTypeAndValue(V, PFS) ||
-      parseToken(lltok::comma, "expected comma in uselistorder directive") ||
+  Type *Ty = nullptr;
+  if (parseType(Ty))
+    return true;
+  
+  //TODO: maybe fix it in front-end when generating
+  if (Ty->isOpaquePointerTy()){
+    parseValue(Ty, V, PFS);
+    parseToken(lltok::comma, "expected comma in uselistorder directive");
+    parseUseListOrderIndexes(Indexes);
+    return false;
+  }
+
+  if (parseValue(Ty, V, PFS) || parseToken(lltok::comma, "expected comma in uselistorder directive") ||
       parseUseListOrderIndexes(Indexes))
     return true;
 
