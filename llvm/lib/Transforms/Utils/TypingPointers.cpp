@@ -1224,6 +1224,36 @@ void PointersAnalyzer::visitCallInst(CallInst &I) {
           Changed |= true;
         }
       }
+  
+      Type *RetType = IA->getFunctionType()->getReturnType();
+      Type *NewRetType = processType(RetType);
+      if (RetType != NewRetType){
+        StringRef AsmString = IA->getAsmString();
+        StringRef ConstraintString = IA->getConstraintString();
+        bool IsAlignStack = IA->isAlignStack();
+        bool HasSideEffects = IA->hasSideEffects();
+        InlineAsm::AsmDialect Dialect = IA->getDialect();
+        SmallVector<Type*, 8> ArgTypeVec;
+        SmallVector<Value*, 8> ArgVec;
+        for(unsigned Idx = 0; Idx < CI->arg_size(); Idx++) {
+          ArgVec.push_back(CI->getArgOperand(Idx));
+          ArgTypeVec.push_back(CI->getArgOperand(Idx)->getType());
+        }
+        FunctionType *NewFnType = llvm::FunctionType::get(NewRetType, ArgTypeVec, false);
+        InlineAsm *NewIA = InlineAsm::get(
+            NewFnType,
+            AsmString,
+            ConstraintString,
+            HasSideEffects,
+            IsAlignStack,
+            Dialect
+        );
+        llvm::CallInst *NewCall = llvm::CallInst::Create(NewIA, ArgVec, "", CI);
+        CI->replaceAllUsesWith(NewCall);
+        CI->eraseFromParent();
+        Changed |= true;
+      }
+
       return;
     }
 
