@@ -100,7 +100,8 @@ define void @kernel(ptr addrspace(1) %0, ptr addrspace(1) %1) local_unnamed_addr
   tail call void asm sideeffect "@$2 st.shared.b8 [ $0 + 0 ], $1;", "r,h,b"(ptr addrspace(3) %72, i8 %85, i1 %89) #3, !dbg !13
   tail call void asm sideeffect "@$2 st.shared.b32 [ $0 + 0 ], $1;", "r,r,b"(ptr addrspace(3) %74, i32 %86, i1 %89) #3, !dbg !13
   tail call void @llvm.nvvm.barrier0(), !dbg !13
-  ; CHECK: %{{.+}} = load i8, i8 addrspace(3)* getelementptr inbounds ([0 x i8], [0 x i8] addrspace(3)* @global_smem, i32 0, i64 8), align 8, !dbg !13
+  ; CHECK: [[GEP:%9.*]] = getelementptr i8, i8 addrspace(3)* getelementptr inbounds ([0 x i8], [0 x i8] addrspace(3)* @global_smem, i32 0, i32 0), i64 8
+  ; CHECK: %{{[0-9]+}} = load i8, i8 addrspace(3)* [[GEP]], align 8
   %90 = load i8, ptr addrspace(3) getelementptr (i8, ptr addrspace(3) @global_smem, i64 8), align 8, !dbg !13
   %91 = icmp eq i32 %3, 0, !dbg !26
   tail call void asm sideeffect "@$2 st.global.b8 [ $1 + 0 ], { $0 };", "c,l,b"(i8 %90, ptr addrspace(1) %1, i1 %91) #3, !dbg !26

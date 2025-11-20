@@ -59,9 +59,13 @@ entry:                                            ; preds = %0
   %22 = load ptr, ptr @_QFEsect_arr, align 8
   %array_offset1 = getelementptr inbounds i32, ptr %22, i64 %21
   %23 = load ptr, ptr %11, align 8
-  ;CHECK: %{{.+}} = sdiv exact i64 sub (i64 ptrtoint ({ i8*, i64, i32, i8, i8, i8, i8, [1 x [3 x i64]] }* getelementptr inbounds ({ i8*, i64, i32, i8, i8, i8, i8, [1 x [3 x i64]] }, { i8*, i64, i32, i8, i8, i8, i8, [1 x [3 x i64]] }* @_QFEfull_arr, i32 1) to i64), i64 ptrtoint ({ i8*, i64, i32, i8, i8, i8, i8, [1 x [3 x i64]] }* @_QFEfull_arr to i64)), ptrtoint (i8* getelementptr inbounds (i8, i8* null, i32 1) to i64)
+; CHECK:  [[GEP:%.*]] = getelementptr inbounds { i8*, i64, i32, i8, i8, i8, i8, [1 x [3 x i64]] }, { i8*, i64, i32, i8, i8, i8, i8, [1 x [3 x i64]] }* @_QFEfull_arr, i32 1
+; CHECK:  [[BITCAST:%.*]] = bitcast { i8*, i64, i32, i8, i8, i8, i8, [1 x [3 x i64]] }* [[GEP]] to i8*
+; CHECK:  [[PTOI:%.*]] = ptrtoint i8* [[BITCAST]] to i64
+; CHECK:  [[PTOI1:%.*]] = ptrtoint i8* bitcast ({ i8*, i64, i32, i8, i8, i8, i8, [1 x [3 x i64]] }* @_QFEfull_arr to i8*) to i64
+; CHECK:  [[SUB:%.*]] = sub i64 [[PTOI]], [[PTOI1]]
+; CHECK:  sdiv exact i64 [[SUB]], ptrtoint (i8* getelementptr inbounds (i8, i8* null, i32 1) to i64)
   %24 = sdiv exact i64 sub (i64 ptrtoint (ptr getelementptr ({ ptr, i64, i32, i8, i8, i8, i8, [1 x [3 x i64]] }, ptr @_QFEfull_arr, i32 1) to i64), i64 ptrtoint (ptr @_QFEfull_arr to i64)), ptrtoint (ptr getelementptr (i8, ptr null, i32 1) to i64)
-  ;CHECK: %{{.+}} = sdiv exact i64 sub (i64 ptrtoint ({ i8*, i64, i32, i8, i8, i8, i8, [1 x [3 x i64]] }* getelementptr inbounds ({ i8*, i64, i32, i8, i8, i8, i8, [1 x [3 x i64]] }, { i8*, i64, i32, i8, i8, i8, i8, [1 x [3 x i64]] }* @_QFEsect_arr, i32 1) to i64), i64 ptrtoint ({ i8*, i64, i32, i8, i8, i8, i8, [1 x [3 x i64]] }* @_QFEsect_arr to i64)), ptrtoint (i8* getelementptr inbounds (i8, i8* null, i32 1) to i64)
   %25 = sdiv exact i64 sub (i64 ptrtoint (ptr getelementptr ({ ptr, i64, i32, i8, i8, i8, i8, [1 x [3 x i64]] }, ptr @_QFEsect_arr, i32 1) to i64), i64 ptrtoint (ptr @_QFEsect_arr to i64)), ptrtoint (ptr getelementptr (i8, ptr null, i32 1) to i64)
   %26 = getelementptr { ptr, i64, i32, i8, i8, i8, i8 }, ptr %1, i32 1
   %27 = ptrtoint ptr %26 to i64

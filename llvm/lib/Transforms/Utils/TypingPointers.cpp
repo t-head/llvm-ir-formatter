@@ -15,6 +15,8 @@
 #include "llvm/IR/Function.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/InstVisitor.h"
+#include "llvm/IR/InstrTypes.h"
+#include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicsNVPTX.h"
 #include "llvm/IR/InlineAsm.h"
@@ -23,6 +25,7 @@
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Metadata.h"
 #include "llvm/IR/ReplaceConstant.h"
+#include "llvm/IR/Use.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/Casting.h"
@@ -370,12 +373,12 @@ GlobalVariable* PointersAnalyzer::processGlobalVariable(GlobalVariable* GV) {
 
 void PointersAnalyzer::processIdentifiedStructTypes(Module &M) {
   for (auto &STy : M.getIdentifiedStructTypes()) {
-    StructType *NewSTy = dyn_cast<StructType>(processType(STy));
+    StructType *NewSTy = cast<StructType>(processType(STy));
     LLVM_DEBUG(llvm::dbgs() << "dump type: "; STy->print(llvm::dbgs());
                llvm::dbgs() << "\n"; llvm::dbgs() << "\tnew type: ";
                NewSTy->print(llvm::dbgs()); llvm::dbgs() << "\n";);
     if(NewSTy != STy)
-      STy->setBody(NewSTy->getArrayElementType());
+      STy->setBody(NewSTy->subtypes());
   }
 }
 
@@ -1724,6 +1727,7 @@ bool PointersAnalyzer::processFunctionArguments(Function* &F) {
               Value *NewArg = NewFn;
               Type *ArgType = Arg->getType();
               if (ArgType && (ArgType != NewFn->getType())) {
+                // ArgType = processType(ArgType);
                 NewArg = B.CreateBitCast(NewFn, ArgType);
               }
               Arg->replaceAllUsesWith(NewArg);

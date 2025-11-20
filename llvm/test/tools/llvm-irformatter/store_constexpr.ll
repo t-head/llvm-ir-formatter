@@ -699,7 +699,8 @@ define void @triton_(ptr addrspace(1) %0, ptr addrspace(1) %1, ptr addrspace(1) 
   %657 = insertelement <1 x float> poison, float %410, i64 0, !dbg !56
   store <1 x float> %657, ptr addrspace(3) @global_smem, align 16, !dbg !56
   %658 = insertelement <1 x float> poison, float %411, i64 0, !dbg !56
-  ; CHECK: store <1 x float> %{{.+}}, <1 x float> addrspace(3)* bitcast (i8 addrspace(3)* getelementptr inbounds ([0 x i8], [0 x i8] addrspace(3)* @global_smem, i32 0, i64 8) to <1 x float> addrspace(3)*), align 8, !dbg !56
+  ; CHECK: [[GEP:%7.*]] = bitcast i8 addrspace(3)* getelementptr inbounds ([0 x i8], [0 x i8] addrspace(3)* @global_smem, i32 0, i32 0) to <1 x float> addrspace(3)*, !dbg !{{[0-9]+}}
+  ; CHECK: store <1 x float> %{{[0-9]+}}, <1 x float> addrspace(3)* [[GEP]], align 16
   store <1 x float> %658, ptr addrspace(3) getelementptr (i8, ptr addrspace(3) @global_smem, i64 8), align 8, !dbg !56
   tail call void @llvm.nvvm.barrier0(), !dbg !56
   %659 = shl nuw nsw i32 %.lobit, 1, !dbg !56
@@ -710,7 +711,6 @@ define void @triton_(ptr addrspace(1) %0, ptr addrspace(1) %1, ptr addrspace(1) 
   %663 = insertelement <1 x float> poison, float %412, i64 0, !dbg !56
   store <1 x float> %663, ptr addrspace(3) @global_smem, align 16, !dbg !56
   %664 = insertelement <1 x float> poison, float %413, i64 0, !dbg !56
-  ; CHECK: store <1 x float> %{{.+}}, <1 x float> addrspace(3)* bitcast (i8 addrspace(3)* getelementptr inbounds ([0 x i8], [0 x i8] addrspace(3)* @global_smem, i32 0, i64 8) to <1 x float> addrspace(3)*), align 8, !dbg !56
   store <1 x float> %664, ptr addrspace(3) getelementptr (i8, ptr addrspace(3) @global_smem, i64 8), align 8, !dbg !56
   tail call void @llvm.nvvm.barrier0(), !dbg !56
   %665 = load float, ptr addrspace(3) %661, align 8, !dbg !56

@@ -60,7 +60,9 @@ define void @_kernel(ptr addrspace(1) %0, ptr addrspace(1) %1, ptr addrspace(1) 
   %56 = select i1 %.inv, i32 0, i32 16, !dbg !46
   tail call void asm sideeffect "@$3 cp.async.cg.shared.global [ $0 + 0 ], [ $1 + 0 ], 0x10, $2;", "r,l,r,b"(ptr addrspace(3) %55, ptr addrspace(1) %43, i32 %56, i1 true) #2, !dbg !46
   tail call void asm sideeffect "cp.async.commit_group ;", ""() #2, !dbg !46
-  ; CHECK: %{{.+}} = getelementptr inbounds half, half addrspace(3)* bitcast (i8 addrspace(3)* getelementptr inbounds ([0 x i8], [0 x i8] addrspace(3)* @global_smem, i32 0, i64 1024) to half addrspace(3)*), i64 %{{.+}}, !dbg !47
+  ; CHECK: [[GEP:%.*]] = getelementptr i8, i8 addrspace(3)* getelementptr inbounds ([0 x i8], [0 x i8] addrspace(3)* @global_smem, i32 0, i32 0), i64 1024
+  ; CHECK: [[BITCAST:%.*]] = bitcast i8 addrspace(3)* [[GEP]] to half addrspace(3)*
+  ; CHECK: %{{[0-9]+}} = getelementptr inbounds half, half addrspace(3)* [[BITCAST]], i64 %{{[0-9]+}}
   %57 = getelementptr inbounds half, ptr addrspace(3) getelementptr (i8, ptr addrspace(3) @global_smem, i64 1024), i64 %54, !dbg !47
   tail call void asm sideeffect "@$3 cp.async.cg.shared.global [ $0 + 0 ], [ $1 + 0 ], 0x10, $2;", "r,l,r,b"(ptr addrspace(3) %57, ptr addrspace(1) %47, i32 %56, i1 true) #2, !dbg !47
   tail call void asm sideeffect "cp.async.commit_group ;", ""() #2, !dbg !47

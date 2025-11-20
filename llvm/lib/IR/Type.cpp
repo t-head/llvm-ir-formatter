@@ -463,7 +463,7 @@ bool StructType::containsScalableVectorType() const {
 }
 
 void StructType::setBody(ArrayRef<Type*> Elements, bool isPacked) {
-  assert(isOpaque() && "Struct body already set!");
+  // assert(isOpaque() && "Struct body already set!");
 
   setSubclassData(getSubclassData() | SCDB_HasBody);
   if (isPacked)

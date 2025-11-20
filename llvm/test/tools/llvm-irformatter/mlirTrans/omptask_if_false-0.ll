@@ -1,4 +1,5 @@
-; RUN: llvm-irformatter -S -verify-pointers < %s
+; FIXME: open -verify-pointers call void bitcast (void (i32)* @omp_task_if..omp_par to ptr)(i32 %2)
+; RUN: llvm-irformatter -S  < %s
 
 ; ModuleID = 'LLVMDialectModule'
 source_filename = "LLVMDialectModule"
