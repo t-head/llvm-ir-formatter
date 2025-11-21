@@ -1572,6 +1572,10 @@ bool LLParser::parseFnAttributeValuePairs(AttrBuilder &B,
     }
 
     Attribute::AttrKind Attr = tokenToAttribute(Token);
+    if (Attr == Attribute::DisableSanitizerInstrumentation) {
+      Lex.Lex();
+      continue;
+    }
     if (Attr == Attribute::None) {
       if (!InAttrGrp)
         break;
