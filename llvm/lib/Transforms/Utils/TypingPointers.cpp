@@ -6,8 +6,11 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringRef.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/CodeGen/Passes.h"
 #include "llvm/CodeGen/TargetPassConfig.h"
@@ -24,6 +27,7 @@
 #include "llvm/IR/Constant.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/Metadata.h"
+#include "llvm/IR/Module.h"
 #include "llvm/IR/ReplaceConstant.h"
 #include "llvm/IR/Use.h"
 #include "llvm/InitializePasses.h"
@@ -152,6 +156,43 @@ PreservedAnalyses TypingPointers::run(Module &M, ModuleAnalysisManager &MAM) {
   return PreservedAnalyses::all();
 }
 
+static bool ppuReflect(GlobalVariable &GV) {
+  Constant *Initializer = GV.getInitializer();
+  if (!Initializer)
+    return false;
+  auto *CD = dyn_cast<ConstantDataSequential>(Initializer);
+  if (!CD)
+    return false;
+  SmallVector<Value *, 32> WorkList(GV.users());
+  while (!WorkList.empty()) {
+    Value *V = WorkList.pop_back_val();
+    if (CallInst *CI = dyn_cast<CallInst>(V)) {
+      if (CI->getCalledFunction() &&
+          (CI->getCalledFunction()->getName() == "__hggc_reflect" ||
+           CI->getCalledFunction()->getName() == "__nvvm_reflect"))
+        return true;
+      continue;
+    }
+    for (auto *U : V->users()) {
+      if (isa<ConstantExpr>(U) || isa<CallInst>(U))
+        WorkList.push_back(U);
+    }
+  }
+
+  return false;
+}
+
+static void convertConstantToInstGVs(Module &M) {
+  SmallVector<GlobalVariable *, 16> ConstToInsts;
+  for (auto &V : M.globals()) {
+    if (!ppuReflect(V)) {
+      ConstToInsts.push_back(&V);
+    }
+  }
+  SmallVector<Constant *, 8> ConvertList(ConstToInsts.begin(),
+                                         ConstToInsts.end());
+  convertUsersOfConstantsToInstructions(ConvertList);
+}
 
 bool PointersAnalyzer::runOnModule(Module& M) {
 
@@ -161,14 +202,7 @@ bool PointersAnalyzer::runOnModule(Module& M) {
 
   processNVVMReflect(M);
 
-  SmallVector<GlobalVariable *, 16> ConstToInsts;
-  for (auto &V : M.globals()) {
-    ConstToInsts.push_back(&V);
-    // GlobalMap.insert(std::make_pair(&V, &V));
-  }
-  SmallVector<Constant *, 8> ConvertList(ConstToInsts.begin(),
-                                         ConstToInsts.end());
-  convertUsersOfConstantsToInstructions(ConvertList);
+  convertConstantToInstGVs(M);
 
   processGlobals(M);
 
@@ -176,14 +210,7 @@ bool PointersAnalyzer::runOnModule(Module& M) {
 
   // FIXME: Constant to instruction second, Avoid the Constant introduced when
   // handling global variables
-  ConstToInsts.clear();
-  for (auto &V : M.globals()) {
-    ConstToInsts.push_back(&V);
-    // GlobalMap.insert(std::make_pair(&V, &V));
-  }
-  SmallVector<Constant *, 8> ConvertList1(ConstToInsts.begin(),
-                                         ConstToInsts.end());
-  convertUsersOfConstantsToInstructions(ConvertList1);
+  convertConstantToInstGVs(M);
 
   processFunctions(M);
 
