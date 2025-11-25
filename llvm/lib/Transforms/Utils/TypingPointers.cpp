@@ -627,6 +627,17 @@ void PointersAnalyzer::processConstantExpression(ConstantExpr *CE,
     Value* NewOpnd = processOpaqueOperand(B, Opnd);
     Constant *NewPTI = ConstantExpr::getPtrToInt(dyn_cast<Constant>(NewOpnd), PTI->getType());
     ConstantExpMap[CE] = NewPTI;
+  } else if (CE->getOpcode() == Instruction::IntToPtr) {
+    auto *ITP = dyn_cast<IntToPtrInst>(CE->getAsInstruction());
+    // visitIntToPtrInst(*ITP);
+    IRBuilder<> B(CE->getContext());
+    Type *PtrType = ITP->getDestTy();
+    Type *NewPtrType = processType(PtrType);
+    Constant *NewITP = CE;
+    if (PtrType != NewPtrType)
+      NewITP = ConstantExpr::getIntToPtr(dyn_cast<Constant>(ITP->getOperand(0)),
+                                         NewPtrType);
+    ConstantExpMap[CE] = NewITP;
   } else {
     ConstantExpMap[CE] = CE;
     //report_fatal_error("Unknown ConstantExpr type need to be handle");
