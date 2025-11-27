@@ -145,6 +145,9 @@ def Nest : EnumAttr<"nest", [ParamAttr]>;
 /// Considered to not alias after call.
 def NoAlias : EnumAttr<"noalias", [ParamAttr, RetAttr]>;
 
+/// Grid Constant param.
+def GridConstant : EnumAttr<"grid_constant", [ParamAttr]>;
+
 /// Callee isn't recognized as a builtin.
 def NoBuiltin : EnumAttr<"nobuiltin", [FnAttr]>;
 

@@ -157,9 +157,9 @@ PreservedAnalyses TypingPointers::run(Module &M, ModuleAnalysisManager &MAM) {
 }
 
 static bool ppuReflect(GlobalVariable &GV) {
-  Constant *Initializer = GV.getInitializer();
-  if (!Initializer)
+  if (!GV.hasInitializer())
     return false;
+  Constant *Initializer = GV.getInitializer();
   auto *CD = dyn_cast<ConstantDataSequential>(Initializer);
   if (!CD)
     return false;
