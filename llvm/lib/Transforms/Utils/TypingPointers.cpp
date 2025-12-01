@@ -16,6 +16,8 @@
 #include "llvm/CodeGen/TargetPassConfig.h"
 #include "llvm/IR/DerivedTypes.h"
 #include "llvm/IR/Function.h"
+#include "llvm/IR/GlobalAlias.h"
+#include "llvm/IR/GlobalValue.h"
 #include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/InstVisitor.h"
 #include "llvm/IR/InstrTypes.h"
@@ -53,6 +55,7 @@ private:
   std::map<Function*, bool>FunctionMap;
   std::map<Function*, Function*> FunctionRemoveMap;
   std::vector<GlobalVariable*> GlobalList;
+  std::vector<GlobalAlias*> GlobalAliasList;
   std::map<GlobalVariable*, GlobalVariable*> GlobalMap;
 
   // Holds metadata as intrinsic argument
@@ -113,6 +116,7 @@ public:
   void processNVVMReflect(Module &M);
   void processFunctions(Module &M);
   void processGlobals(Module &M);
+  void processGlobalAliases(Module &M);
   void processIdentifiedStructTypes(Module &M);
   bool processFunction(Function* &F);
   bool processFunctionArguments(Function* &F);
@@ -215,6 +219,8 @@ bool PointersAnalyzer::runOnModule(Module& M) {
   processFunctions(M);
 
   processIdentifiedStructTypes(M);
+
+  processGlobalAliases(M);
 
   removeDeadValue();
 
@@ -492,6 +498,35 @@ void PointersAnalyzer::processGlobals(Module &M) {
           report_fatal_error("Unresolved global variable use");
         }
       }
+    }
+  }
+}
+
+void PointersAnalyzer::processGlobalAliases(Module &M) {
+  for (auto &A : M.aliases()) {
+    GlobalAliasList.push_back(&A);
+  }
+
+  for (GlobalAlias *GA : GlobalAliasList) {
+    Constant *CA = GA->getAliasee();
+    Constant *NewCA = processConstant(CA);
+    Type *NewTy = NewCA->getType();
+    if (auto *ptrType = dyn_cast<PointerType>(NewCA->getType())) {
+      NewTy = ptrType->getNonOpaquePointerElementType();
+    }
+
+    if (CA != NewCA) {
+      LLVM_DEBUG(llvm::dbgs() << "processing global aliase: \n";
+                 GA->print(llvm::dbgs());
+                 llvm::dbgs() << "\n\tglobal aliase new type: \n";
+                 NewTy->print(llvm::dbgs()); llvm::dbgs() << "\n";);
+      GlobalAlias *NewGA =
+          GlobalAlias::create(NewTy, GA->getType()->getAddressSpace(),
+                              GA->getLinkage(), "", NewCA, &M);
+      NewGA->takeName(GA);
+      NewGA->copyAttributesFrom(GA);
+      GA->replaceAllUsesWith(NewGA);
+      GA->eraseFromParent();
     }
   }
 }
