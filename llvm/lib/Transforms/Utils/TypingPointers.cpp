@@ -86,7 +86,7 @@ public:
   void visitAtomicCmpXchgInst(AtomicCmpXchgInst &I);
   void visitAtomicRMWInst(AtomicRMWInst &I);
   void visitGetElementPtrInst(GetElementPtrInst &I);
-  //void visitPHINode(PHINode       &I);
+  void visitPHINode(PHINode &I);
   void visitPtrToIntInst(PtrToIntInst &I);
   void visitIntToPtrInst(IntToPtrInst &I);
   void visitBitCastInst(BitCastInst &I);
@@ -1438,7 +1438,6 @@ void PointersAnalyzer::processAggregateAndVectorUse(Value* AggVal, Value* NewVal
   }
 }
 
-//void PointersAnalyzer::visitPHINode(PHINode &I) {
 void PointersAnalyzer::processPHINode(PHINode &I) {
   PHINode *PHII = &I;
   Type *PHITy = PHII->getType();
@@ -1518,6 +1517,12 @@ void PointersAnalyzer::visitExtractValueInst(ExtractValueInst &I) {
   }
   return;
 }
+
+void PointersAnalyzer::visitPHINode(PHINode &I) {
+  // All the ptr related PHINode should be handled in the processPHINode
+  return;
+}
+
 void PointersAnalyzer::visitInsertValueInst(InsertValueInst &I) {
   // All the ptr related InsertValues should be handled in the Structure&removeDeadValue
   return;
