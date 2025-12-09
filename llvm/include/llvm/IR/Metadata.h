@@ -1080,9 +1080,6 @@ protected:
 
   void dropAllReferences();
 
-  MDOperand *mutable_begin() { return getHeader().operands().begin(); }
-  MDOperand *mutable_end() { return getHeader().operands().end(); }
-
   using mutable_op_range = iterator_range<MDOperand *>;
 
   mutable_op_range mutable_operands() {
@@ -1093,6 +1090,8 @@ public:
   MDNode(const MDNode &) = delete;
   void operator=(const MDNode &) = delete;
   void *operator new(size_t) = delete;
+  MDOperand *mutable_begin() { return getHeader().operands().begin(); }
+  MDOperand *mutable_end() { return getHeader().operands().end(); }
 
   static inline MDTuple *get(LLVMContext &Context, ArrayRef<Metadata *> MDs);
   static inline MDTuple *getIfExists(LLVMContext &Context,

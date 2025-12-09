@@ -28,6 +28,7 @@
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/Constant.h"
 #include "llvm/IR/Constants.h"
+#include "llvm/IR/DebugInfo.h"
 #include "llvm/IR/Metadata.h"
 #include "llvm/IR/Module.h"
 #include "llvm/IR/ReplaceConstant.h"
@@ -117,6 +118,7 @@ public:
   void processFunctions(Module &M);
   void processGlobals(Module &M);
   void processGlobalAliases(Module &M);
+  void processMetaData(Module &M);
   void processIdentifiedStructTypes(Module &M);
   bool processFunction(Function* &F);
   bool processFunctionArguments(Function* &F);
@@ -221,6 +223,8 @@ bool PointersAnalyzer::runOnModule(Module& M) {
   processIdentifiedStructTypes(M);
 
   processGlobalAliases(M);
+
+  processMetaData(M);
 
   removeDeadValue();
 
@@ -452,6 +456,7 @@ void PointersAnalyzer::processGlobals(Module &M) {
             GV->getType()->getAddressSpace(), GV->isExternallyInitialized());
       NewGV->copyAttributesFrom(GV);
       NewGV->takeName(GV);
+      NewGV->copyMetadata(GV, 0);
       //NewGV->getComdat(GV->getComdat());
 
       LLVM_DEBUG(llvm::dbgs() << "Create new global: \n";
@@ -2061,6 +2066,37 @@ void PointersAnalyzer::removeFakeCast(Module &M) {
   for(auto *F : IntriscsDecl) {
     if(F->use_empty()) {
       F->eraseFromParent();
+    }
+  }
+}
+
+void PointersAnalyzer::processMetaData(Module &M) {
+  SmallVector<std::pair<GlobalVariable&, DIGlobalVariableExpression*>, 8> ToUpgrade;
+
+  for(auto &GV : M.globals()) {
+    if (!GV.getMetadata(LLVMContext::MD_dbg))
+      continue;
+    if (auto *GVE = 
+          dyn_cast<DIGlobalVariableExpression>(GV.getMetadata(LLVMContext::MD_dbg))) {
+      DIGlobalVariable *DGV = GVE->getVariable();
+      if (DGV && DGV->getName().empty()) {
+        ToUpgrade.emplace_back(GV, GVE);
+      }
+    }
+  }
+
+  for (auto &Pair : ToUpgrade) {
+    GlobalVariable  &GV = Pair.first;
+    DIGlobalVariableExpression *GVE = Pair.second;
+    DIGlobalVariable *DGV = GVE->getVariable();
+    MDString *NewMDStr = MDString::get(M.getContext(), GV.getName());
+    unsigned Index = 0;
+    for (MDOperand* It = DGV->mutable_begin(); It != DGV->mutable_end(); It++) {
+      // For DIGlobalVariable, Add name field (Operand Index 1)
+      if (Index == 1 && !(It->get())) {
+        It->reset(NewMDStr, DGV);
+      }
+      Index++;
     }
   }
 }
