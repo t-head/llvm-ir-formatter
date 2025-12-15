@@ -214,6 +214,8 @@ bool PointersAnalyzer::runOnModule(Module& M) {
 
   processAggregates(M);
 
+  processGlobalAliases(M);
+
   // FIXME: Constant to instruction second, Avoid the Constant introduced when
   // handling global variables
   convertConstantToInstGVs(M);
@@ -221,8 +223,6 @@ bool PointersAnalyzer::runOnModule(Module& M) {
   processFunctions(M);
 
   processIdentifiedStructTypes(M);
-
-  processGlobalAliases(M);
 
   processMetaData(M);
 
@@ -1387,8 +1387,12 @@ void PointersAnalyzer::visitCallInst(CallInst &I) {
         }
         FunctionType* NewFTy = FunctionType::get(NewRetTy, NewArgsTys, false);
         Type* NewFPtrTy = PointerType::get(NewFTy, CallVal->getType()->getPointerAddressSpace(), true);
-
-        Value* NewCallVal = B.CreatePointerCast(CallVal, NewFPtrTy);
+        Value* NewCallVal;
+        if (auto GA = dyn_cast<GlobalAlias>(CallVal)){
+          NewCallVal = CallVal;
+        } else {
+          NewCallVal = B.CreatePointerCast(CallVal, NewFPtrTy);
+        }
         CallInst* NewCall = B.CreateCall(NewFTy, NewCallVal, NewArgs);
         NewCall->copyMetadata(*CI, {llvm::LLVMContext::MD_dbg});
         if (CI->isTailCall()) {
@@ -2198,10 +2202,13 @@ void VerifyAnalyzer::visitInstruction(Instruction &I) {
     Value* opnd = I.getOperand(Idx);
 
     // keep inlineAsm type, because inlineAsm will be only used once
-    if(const InlineAsm *IA = dyn_cast<InlineAsm>(opnd))
+    if(isa<InlineAsm>(opnd))
       continue;
 
-    if(isContainOpaquePointers(opnd->getType())) {
+    if (isContainOpaquePointers(opnd->getType())) {
+      // GlobalAlias always get ptr type
+      if (isa<GlobalAlias>(opnd))
+        continue;
       I.print(llvm::errs());
       llvm::errs() << "\n";
       report_fatal_error("Instruction contain opaque pointer need to be handled");

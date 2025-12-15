@@ -7,11 +7,11 @@ target triple = "ppu"
 
 %"class.::Json::Features" = type { i8, i8, i8, i8 }
 
-;CHECK: @_ZN4Json8FeaturesC1Ev = unnamed_addr alias void (i8*), void (i8*)* @_ZN4Json8FeaturesC2Ev
-;CHECK: @_ZN4Json13ValueIteratorC1ERKS0_ = unnamed_addr alias void (i8*, i8*), void (i8*, i8*)* @_ZN4Json13ValueIteratorC2ERKS0_
-;CHECK: @_ZN4Json6WriterD1Ev = unnamed_addr alias void (i8*), void (i8*)* @_ZN4Json6WriterD2Ev
-;CHECK: @_ZN4Json12StreamWriterD1Ev = unnamed_addr alias void (i8*), void (i8*)* @_ZN4Json12StreamWriterD2Ev
-;CHECK: @_ZN4Json12StreamWriter7FactoryD1Ev = unnamed_addr alias void (i8*), void (i8*)* @_ZN4Json12StreamWriter7FactoryD2Ev
+; CHECK: @_ZN4Json8FeaturesC1Ev = unnamed_addr alias void (i8*), void (i8*)* @_ZN4Json8FeaturesC2Ev
+; CHECK: @_ZN4Json13ValueIteratorC1ERKS0_ = unnamed_addr alias void (i8*, i8*), void (i8*, i8*)* @_ZN4Json13ValueIteratorC2ERKS0_
+; CHECK: @_ZN4Json6WriterD1Ev = unnamed_addr alias void (i8*), void (i8*)* @_ZN4Json6WriterD2Ev
+; CHECK: @_ZN4Json12StreamWriterD1Ev = unnamed_addr alias void (i8*), void (i8*)* @_ZN4Json12StreamWriterD2Ev
+; CHECK: @_ZN4Json12StreamWriter7FactoryD1Ev = unnamed_addr alias void (i8*), void (i8*)* @_ZN4Json12StreamWriter7FactoryD2Ev
 
 @_ZN4Json8FeaturesC1Ev = unnamed_addr alias void (ptr), ptr @_ZN4Json8FeaturesC2Ev
 @_ZN4Json13ValueIteratorC1ERKS0_ = unnamed_addr alias void (ptr, ptr), ptr @_ZN4Json13ValueIteratorC2ERKS0_
@@ -32,6 +32,8 @@ define void @_ZN4Json8FeaturesC2Ev(ptr noundef align 1 dereferenceable_or_null(4
   store i8 0, ptr %6, align 1
   %7 = getelementptr inbounds %"class.::Json::Features", ptr %3, i32 0, i32 3
   store i8 0, ptr %7, align 1
+; CHECK: call void @_ZN4Json8FeaturesC1Ev(i8* %{{.+}})
+  call void @_ZN4Json8FeaturesC1Ev(ptr %4)
   ret void
 }
 
