@@ -1,7 +1,7 @@
 ; RUN: llvm-irformatter -S -verify-pointers < %s | FileCheck %s
 
 ; ModuleID = 'lineasm_return_type.ll'
-source_filename = "/mnt/ssd/gaoxuchen.gxc/irfm_test/ac_compile/cuda_conformance_test/cuda-ext/singledevice/basic/address_space_conversion/shared_to_generic.cu"
+source_filename = "shared_to_generic.cu"
 target datalayout = "e-p:64:64-p1:64:64-p2:32:32-p3:32:32-p4:64:64-p5:32:32-p6:32:32-i64:64-f16:16-f32:32-v16:16-v32:32-n16:32:64"
 target triple = "ppu"
 

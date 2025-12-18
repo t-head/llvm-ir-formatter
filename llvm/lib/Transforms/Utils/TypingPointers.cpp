@@ -1719,32 +1719,27 @@ Type* PointersAnalyzer::processType(Type* Ty) {
   }
 }
 
-
-bool PointersAnalyzer::processFunctionArguments(Function* &F) {
+bool PointersAnalyzer::processFunctionArguments(Function *&F) {
   IRBuilder<> B(F->getContext());
-  FunctionType* FuncTy = F->getFunctionType();
+  FunctionType *FuncTy = F->getFunctionType();
   std::vector<llvm::Type *> ParamsTys;
-  std::map<unsigned, Type *> ByValParamNo2Type;
   // all function need change because of potential function reference(function pointer)
   bool needChange = true;
   bool ParamChange = false;
   bool RetChange = false;
   bool DeleteFunc = true;
   ConstantAsMetadata *MD = llvm::ConstantAsMetadata::getIfExists(F);
-  for(unsigned Idx = 0; Idx < FuncTy->getNumParams(); Idx++) {
-    Type* ParamTy = FuncTy->getParamType(Idx);
-    if(F->hasParamAttribute(Idx, Attribute::ByVal)){
-      LLVM_DEBUG(llvm::errs() <<"param No." << Idx << " has ByVal\n";);
+  for (unsigned Idx = 0; Idx < FuncTy->getNumParams(); Idx++) {
+    Type *ParamTy = FuncTy->getParamType(Idx);
+    if (F->hasParamAttribute(Idx, Attribute::ByVal)) {
+      LLVM_DEBUG(llvm::dbgs() << "param No." << Idx << " has ByVal\n";);
       Attribute ByValAttr = F->getParamAttribute(Idx, Attribute::ByVal);
-      Type * ByValType = ByValAttr.getValueAsType();
+      Type *ByValType = ByValAttr.getValueAsType();
       Type *NewPtrTy = PointerType::get(ByValType, ParamTy->getPointerAddressSpace(), true);
-      ByValParamNo2Type[Idx] = NewPtrTy;
-      // ParamsTys.push_back(processType(ParamTy));
       ParamsTys.push_back(NewPtrTy);
-    }else if(isContainOpaquePointers(ParamTy)) {
-      Type* NewTy = processType(ParamTy);
+    } else if (isContainOpaquePointers(ParamTy)) {
+      Type *NewTy = processType(ParamTy);
       ParamsTys.push_back(NewTy);
-      ParamChange |= true;
     } else {
       ParamsTys.push_back(ParamTy);
     }
@@ -1849,13 +1844,13 @@ bool PointersAnalyzer::processFunctionArguments(Function* &F) {
               }
               Arg->replaceAllUsesWith(NewArg);
             }
-            // FIXME: Global replace
-            if (ByValParamNo2Type.count(Idx)) {
-              Arg = processOpaqueOperand(B, Arg, ByValParamNo2Type[Idx]);
-            } else {
-              Arg = processOpaqueOperand(B, Arg);
+            if (RebuildCall) {
+              if (Idx < ParamsTys.size())
+                Arg = processOpaqueOperand(B, Arg, ParamsTys[Idx]);
+              else
+                Arg = processOpaqueOperand(B, Arg);
+              ArgList.push_back(Arg);
             }
-            ArgList.push_back(Arg);
           }
 
           LLVM_DEBUG(
