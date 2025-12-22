@@ -58,6 +58,7 @@ private:
   std::vector<GlobalVariable*> GlobalList;
   std::vector<GlobalAlias*> GlobalAliasList;
   std::map<GlobalVariable*, GlobalVariable*> GlobalMap;
+  SmallSet<Constant*, 8> FuncConstantUser;
 
   // Holds metadata as intrinsic argument
   SmallSet<MDNode*, 8> MDContainer;
@@ -1751,7 +1752,6 @@ bool PointersAnalyzer::processFunctionArguments(Function *&F) {
     RetChange = true;
   }
   if(needChange) {
-    SmallVector<Constant*> FuncConstantUser;
     FunctionType* NewFTy = FunctionType::get(ResTy, ParamsTys, FuncTy->isVarArg());
     LLVM_DEBUG(llvm::dbgs() << "new function type: ";
                NewFTy->print(llvm::dbgs());
@@ -1906,7 +1906,7 @@ bool PointersAnalyzer::processFunctionArguments(Function *&F) {
         } else if (Constant* CF = dyn_cast<Constant>(*UserI)) {
           // constant  can't use replaceUsesOfWith
           // will be handled within the constant
-          FuncConstantUser.push_back(CF);
+          FuncConstantUser.insert(CF);
           DeleteFunc = false;
         } else {
           // Fix up any BlockAddresses that refer to the function.
@@ -1937,13 +1937,6 @@ bool PointersAnalyzer::processFunctionArguments(Function *&F) {
       //function used in constant will be captured in FunctionRemoveMap
       // and removed at last.
       FunctionRemoveMap.insert(std::make_pair(F, NewFn));
-    }
-    for (Constant* CU : FuncConstantUser) {
-      processConstant(CU);
-      if (ConstantExpMap.find(CU) != ConstantExpMap.end()) {
-        auto NewCE = ConstantExpMap[CU];
-        CU->replaceAllUsesWith(NewCE);
-      }
     }
     F = NewFn;
 
@@ -2137,6 +2130,13 @@ void PointersAnalyzer::processFunctions(Module& M) {
     NamedMDNode *NMD = M.getOrInsertNamedMetadata("fmt.container");
     for (auto MD : MDContainer)
       NMD->addOperand(MD);
+  }
+  for (Constant* CU : FuncConstantUser) {
+    processConstant(CU);
+    if (ConstantExpMap.find(CU) != ConstantExpMap.end()) {
+      auto NewCE = ConstantExpMap[CU];
+      CU->replaceAllUsesWith(NewCE);
+    }
   }
 }
 
