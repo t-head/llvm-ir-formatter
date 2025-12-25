@@ -1681,7 +1681,7 @@ StructType* PointersAnalyzer::processStructType(StructType* STy) {
       TyList.push_back(SubTy);
     }
   }
-  auto* NewTy = StructType::get(Ctx, TyList);
+  auto* NewTy = StructType::get(Ctx, TyList, STy->isPacked());
   return NewTy;
 }
 
