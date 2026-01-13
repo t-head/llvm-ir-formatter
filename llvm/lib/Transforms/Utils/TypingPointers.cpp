@@ -1328,7 +1328,14 @@ void PointersAnalyzer::visitCallInst(CallInst &I) {
             Dialect
         );
         llvm::CallInst *NewCall = llvm::CallInst::Create(NewIA, ArgVec, "", CI);
-        CI->replaceAllUsesWith(NewCall);
+        Value* TransTemp;
+        if(CI->getType()->isAggregateType()) {
+          TransTemp = B.CreateIntrinsic(Intrinsic::fake_cast,
+                      {CI->getType(), NewCall->getType()}, NewCall);
+        } else {
+          TransTemp = processPtr(B, NewCall, CI->getType());
+        }
+        CI->replaceAllUsesWith(TransTemp);
         CI->eraseFromParent();
         Changed |= true;
       }
