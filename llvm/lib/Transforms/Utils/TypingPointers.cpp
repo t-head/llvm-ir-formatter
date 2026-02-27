@@ -1446,9 +1446,23 @@ void PointersAnalyzer::processAggregateAndVectorUse(Value* AggVal, Value* NewVal
       }
       ExtractI->replaceAllUsesWith(NewExtract);
       ExtractI->eraseFromParent();
+    } else if (PHINode *Phi = dyn_cast<PHINode>(*UserI)) {
+      // PHI operands conceptually live on incoming edges, so insert any needed
+      // casts in the predecessor blocks (not next to the PHI).
+      Type *ExpectedTy = Phi->getType();
+      for (unsigned i = 0, e = Phi->getNumIncomingValues(); i != e; ++i) {
+        if (Phi->getIncomingValue(i) != AggVal)
+          continue;
+        BasicBlock *IncomingBB = Phi->getIncomingBlock(i);
+        IRBuilder<> IB(IncomingBB->getTerminator());
+        Value *Replacement = NewVal;
+        if (Replacement->getType() != ExpectedTy)
+          Replacement = createCast(IB, Replacement, ExpectedTy);
+        Phi->setIncomingValue(i, Replacement);
+      }
     } else {
-      report_fatal_error("Unresolved PHI node use");
-      //function call, phi node?
+      // Fallback: replace other instruction uses in-place.
+      // Note: this is not correct for PHIs (handled above).
       Value* PreCast = createCast(B, NewVal, AggVal->getType());
       UserI->replaceUsesOfWith(AggVal, PreCast);
     }
