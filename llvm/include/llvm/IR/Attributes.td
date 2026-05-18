@@ -166,6 +166,9 @@ def NoDuplicate : EnumAttr<"noduplicate", [FnAttr]>;
 /// Function does not deallocate memory.
 def NoFree : EnumAttr<"nofree", [FnAttr, ParamAttr]>;
 
+/// Function does not create undef or poison values.
+def NoCreateUndefOrPoison : EnumAttr<"nocreateundeforpoison", [FnAttr]>;
+
 /// Disable implicit floating point insts.
 def NoImplicitFloat : EnumAttr<"noimplicitfloat", [FnAttr]>;
 
