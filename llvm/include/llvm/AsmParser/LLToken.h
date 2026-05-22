@@ -351,6 +351,9 @@ enum Kind {
 
   kw_freeze,
 
+  // Debug value directive (non-standard, #dbg_value syntax).
+  kw_dbg_value,
+
   // Metadata types.
   kw_distinct,
 

@@ -6488,8 +6488,17 @@ bool LLParser::parseBasicBlock(PerFunctionState &PFS) {
   std::string NameStr;
 
   // parse the instructions in this block until we get a terminator.
-  Instruction *Inst;
+  Instruction *Inst = nullptr;
   do {
+    // Handle #dbg_value directive: skip without expecting a name.
+    if (Lex.getKind() == lltok::kw_dbg_value) {
+      Lex.Lex();  // Eat the #dbg_value keyword.
+      if (parseDbgValue(Inst, PFS))
+        return true;
+      // Continue without exiting the loop - #dbg_value is not a real instruction
+      continue;
+    }
+
     // This instruction may have three possibilities for a name: a) none
     // specified, b) name specified "%foo =", c) number specified: "%4 =".
     LocTy NameLoc = Lex.getLoc();
@@ -6532,9 +6541,9 @@ bool LLParser::parseBasicBlock(PerFunctionState &PFS) {
     }
 
     // Set the name on the instruction.
-    if (PFS.setInstName(NameID, NameStr, NameLoc, Inst))
+    if (Inst && PFS.setInstName(NameID, NameStr, NameLoc, Inst))
       return true;
-  } while (!Inst->isTerminator());
+  } while (!Inst || !Inst->isTerminator());
 
   return false;
 }
@@ -8258,6 +8267,54 @@ int LLParser::parseInsertValue(Instruction *&Inst, PerFunctionState &PFS) {
                            getTypeString(IndexedType) + "'");
   Inst = InsertValueInst::Create(Val0, Val1, Indices);
   return AteExtraComma ? InstExtraComma : InstNormal;
+}
+
+//===----------------------------------------------------------------------===//
+// Non-standard #dbg_value directive.
+//===----------------------------------------------------------------------===//
+
+/// parseDbgValue
+///   ::= '#dbg_value' '(' TypeAndValue ',' Metadata ',' Metadata ',' Metadata ')'
+bool LLParser::parseDbgValue(Instruction *&Inst, PerFunctionState &PFS) {
+  if (parseToken(lltok::lparen, "expected '(' after #dbg_value"))
+    return true;
+
+  // Parse: type value (the debug value operand)
+  // We don't actually create a DbgValueInst, we just skip this line.
+  Value *V;
+  if (parseTypeAndValue(V, &PFS))
+    return true;
+  if (parseToken(lltok::comma, "expected comma after dbg_value operand"))
+    return true;
+  {
+    Metadata *MD;
+    if (parseMetadata(MD, &PFS))
+      return true;
+  }
+
+  // Skip comma and metadata (DIExpression)
+  if (parseToken(lltok::comma, "expected comma after variable metadata"))
+    return true;
+  {
+    Metadata *MD;
+    if (parseMetadata(MD, &PFS))
+      return true;
+  }
+
+  // Skip comma and metadata (DILocation)
+  if (parseToken(lltok::comma, "expected comma after expression metadata"))
+    return true;
+  {
+    Metadata *MD;
+    if (parseMetadata(MD, &PFS))
+      return true;
+  }
+
+  if (parseToken(lltok::rparen, "expected ')' to close #dbg_value"))
+    return true;
+
+  Inst = nullptr;
+  return false;
 }
 
 //===----------------------------------------------------------------------===//

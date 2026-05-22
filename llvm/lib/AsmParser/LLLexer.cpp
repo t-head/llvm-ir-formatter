@@ -438,7 +438,20 @@ lltok::Kind LLLexer::LexCaret() {
 
 /// Lex all tokens that start with a # character.
 ///    AttrGrpID ::= #[0-9]+
+///    kw_dbg_value ::= #dbg_value
 lltok::Kind LLLexer::LexHash() {
+  // Handle #dbg_value directive
+  if (CurPtr[0] == 'd' && CurPtr[1] == 'b' && CurPtr[2] == 'g' &&
+      CurPtr[3] == '_' && CurPtr[4] == 'v' && CurPtr[5] == 'a' &&
+      CurPtr[6] == 'l' && CurPtr[7] == 'u' && CurPtr[8] == 'e') {
+    // Verify that this is the complete keyword (followed by whitespace, '(', ')', or digit)
+    char c = CurPtr[9];
+    if (c == '(' || c == ')' || c == ' ' || c == '\n' || c == '\r' || c == '\t' ||
+        isdigit(static_cast<unsigned char>(c)) || c == 0) {
+      CurPtr += 9;
+      return lltok::kw_dbg_value;
+    }
+  }
   // Handle AttrGrpID: #[0-9]+
   return LexUIntID(lltok::AttrGrpID);
 }

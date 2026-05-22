@@ -638,6 +638,9 @@ namespace llvm {
     int parseInsertValue(Instruction *&Inst, PerFunctionState &PFS);
     bool parseFreeze(Instruction *&I, PerFunctionState &PFS);
 
+    // Non-standard #dbg_value directive.
+    bool parseDbgValue(Instruction *&Inst, PerFunctionState &PFS);
+
     // Use-list order directives.
     bool parseUseListOrder(PerFunctionState *PFS = nullptr);
     bool parseUseListOrderBB();
