@@ -3616,17 +3616,17 @@ _Z34nvshmemi_bcast_put2all_threadgroupIaL13threadgroup_t2EEviPT_PKS1_mi.exit.i: 
   %92 = add nsw i32 %91, -1
   %93 = load ptr, ptr addrspace(4) getelementptr inbounds nuw (i8, ptr addrspace(4) @nvshmemi_device_state_d, i32 96), align 8
   %94 = load ptr, ptr %93, align 8
-  %95 = tail call i32 @llvm.ppu.read.ptx.sreg.tid.x()
-  %96 = tail call i32 @llvm.ppu.read.ptx.sreg.tid.y()
-  %97 = tail call i32 @llvm.ppu.read.ptx.sreg.tid.z()
-  %98 = tail call i32 @llvm.ppu.read.ptx.sreg.ntid.x()
-  %99 = tail call i32 @llvm.ppu.read.ptx.sreg.ntid.y()
+  %95 = tail call i32 @llvm.ppu.read.tix.sreg.tid.x()
+  %96 = tail call i32 @llvm.ppu.read.tix.sreg.tid.y()
+  %97 = tail call i32 @llvm.ppu.read.tix.sreg.tid.z()
+  %98 = tail call i32 @llvm.ppu.read.tix.sreg.ntid.x()
+  %99 = tail call i32 @llvm.ppu.read.tix.sreg.ntid.y()
   %100 = mul i32 %98, %96
   %101 = add i32 %100, %95
   %102 = mul i32 %99, %98
   %103 = mul i32 %102, %97
   %104 = add i32 %103, %101
-  %105 = tail call i32 @llvm.ppu.read.ptx.sreg.ntid.z()
+  %105 = tail call i32 @llvm.ppu.read.tix.sreg.ntid.z()
   %106 = mul i32 %102, %105
   %.not.i69.i = icmp eq i32 %104, 0
   br i1 %.not.i69.i, label %107, label %119
@@ -4131,18 +4131,18 @@ define internal fastcc i64 @__ppu_printf_begin(i32 %0) unnamed_addr #27 {
   %70 = add i64 %64, 56
   %71 = getelementptr inbounds nuw i8, ptr addrspace(1) %65, i64 48
   store i64 %70, ptr addrspace(1) %71, align 8, !tbaa !66
-  %72 = tail call i32 @llvm.ppu.read.ptx.sreg.ctaid.x()
-  %73 = tail call i32 @llvm.ppu.read.ptx.sreg.nctaid.x()
-  %74 = tail call i32 @llvm.ppu.read.ptx.sreg.ctaid.y()
+  %72 = tail call i32 @llvm.ppu.read.tix.sreg.ctaid.x()
+  %73 = tail call i32 @llvm.ppu.read.tix.sreg.nctaid.x()
+  %74 = tail call i32 @llvm.ppu.read.tix.sreg.ctaid.y()
   %75 = mul nsw i32 %74, %73
   %76 = add nsw i32 %75, %72
   %77 = getelementptr inbounds nuw i8, ptr addrspace(1) %65, i64 16
   store i32 %76, ptr addrspace(1) %77, align 8, !tbaa !67
-  %78 = tail call i32 @llvm.ppu.read.ptx.sreg.tid.x()
-  %79 = tail call i32 @llvm.ppu.read.ptx.sreg.ntid.x()
-  %80 = tail call i32 @llvm.ppu.read.ptx.sreg.tid.y()
-  %81 = tail call i32 @llvm.ppu.read.ptx.sreg.ntid.y()
-  %82 = tail call i32 @llvm.ppu.read.ptx.sreg.tid.z()
+  %78 = tail call i32 @llvm.ppu.read.tix.sreg.tid.x()
+  %79 = tail call i32 @llvm.ppu.read.tix.sreg.ntid.x()
+  %80 = tail call i32 @llvm.ppu.read.tix.sreg.tid.y()
+  %81 = tail call i32 @llvm.ppu.read.tix.sreg.ntid.y()
+  %82 = tail call i32 @llvm.ppu.read.tix.sreg.tid.z()
   %83 = mul i32 %82, %81
   %84 = add i32 %83, %80
   %85 = mul i32 %84, %79
@@ -4453,12 +4453,12 @@ define internal fastcc i64 @__ppu_printf_append_args(i64 returned %0, i64 range(
 
 ; Function Attrs: mustprogress noinline nounwind null_pointer_is_valid
 define internal fastcc void @_ZL13__assert_failPKcS0_jS0_(ptr %0, ptr %1, i32 range(i32 94, 413) %2, ptr %3) unnamed_addr #29 {
-  %5 = tail call i32 @llvm.ppu.read.ptx.sreg.tid.x()
-  %6 = tail call i32 @llvm.ppu.read.ptx.sreg.tid.y()
-  %7 = tail call i32 @llvm.ppu.read.ptx.sreg.tid.z()
-  %8 = tail call i32 @llvm.ppu.read.ptx.sreg.ctaid.x()
-  %9 = tail call i32 @llvm.ppu.read.ptx.sreg.ctaid.y()
-  %10 = tail call i32 @llvm.ppu.read.ptx.sreg.ctaid.z()
+  %5 = tail call i32 @llvm.ppu.read.tix.sreg.tid.x()
+  %6 = tail call i32 @llvm.ppu.read.tix.sreg.tid.y()
+  %7 = tail call i32 @llvm.ppu.read.tix.sreg.tid.z()
+  %8 = tail call i32 @llvm.ppu.read.tix.sreg.ctaid.x()
+  %9 = tail call i32 @llvm.ppu.read.tix.sreg.ctaid.y()
+  %10 = tail call i32 @llvm.ppu.read.tix.sreg.ctaid.z()
   %constexpr = icmp eq ptr addrspacecast (ptr addrspace(4) @.str.2 to ptr), null
   %11 = and i32 sub (i32 ptrtoint (ptr getelementptr (i8, ptr addrspacecast (ptr addrspace(4) @.str.2 to ptr), i64 73) to i32), i32 ptrtoint (ptr addrspacecast (ptr addrspace(4) @.str.2 to ptr) to i32)), -8
   %12 = add i32 %11, 152
@@ -5257,16 +5257,16 @@ _Z30nvshmemi_sync_algo_threadgroupIL13threadgroup_t0EEvi.exit: ; preds = %274, %
 
 ; Function Attrs: convergent inlinehint mustprogress nounwind null_pointer_is_valid
 define internal fastcc void @_Z27nvshmemi_memcpy_threadgroupIL13threadgroup_t2EEvPvPKvm(ptr noalias %0, ptr noalias %1, i64 %2) unnamed_addr #26 comdat {
-  %4 = tail call i32 @llvm.ppu.read.ptx.sreg.tid.x()
-  %5 = tail call i32 @llvm.ppu.read.ptx.sreg.tid.y()
-  %6 = tail call i32 @llvm.ppu.read.ptx.sreg.tid.z()
-  %7 = tail call i32 @llvm.ppu.read.ptx.sreg.ntid.x()
-  %8 = tail call i32 @llvm.ppu.read.ptx.sreg.ntid.y()
+  %4 = tail call i32 @llvm.ppu.read.tix.sreg.tid.x()
+  %5 = tail call i32 @llvm.ppu.read.tix.sreg.tid.y()
+  %6 = tail call i32 @llvm.ppu.read.tix.sreg.tid.z()
+  %7 = tail call i32 @llvm.ppu.read.tix.sreg.ntid.x()
+  %8 = tail call i32 @llvm.ppu.read.tix.sreg.ntid.y()
   %9 = mul i32 %8, %6
   %reass.add = add i32 %9, %5
   %reass.mul = mul i32 %reass.add, %7
   %10 = add i32 %reass.mul, %4
-  %11 = tail call i32 @llvm.ppu.read.ptx.sreg.ntid.z()
+  %11 = tail call i32 @llvm.ppu.read.tix.sreg.ntid.z()
   %12 = mul i32 %8, %7
   %13 = mul i32 %12, %11
   %14 = ptrtoint ptr %0 to i64
@@ -6227,11 +6227,11 @@ _Z35nvshmemi_proxy_amo_nonfetch_with_epIlEvPvT_i14nvshmemi_amo_ti.exit: ; preds 
 
 ; Function Attrs: mustprogress nofree noinline nounwind null_pointer_is_valid
 define internal fastcc void @_Z33nvshmemi_transfer_rma_nbi_with_epIL13threadgroup_t2EL13nvshmemi_op_t1EEvPvS2_mii(ptr %0, ptr %1, i64 %2, i32 %3) unnamed_addr #39 section ".text.compute" comdat {
-  %5 = tail call i32 @llvm.ppu.read.ptx.sreg.tid.x()
-  %6 = tail call i32 @llvm.ppu.read.ptx.sreg.tid.y()
-  %7 = tail call i32 @llvm.ppu.read.ptx.sreg.tid.z()
-  %8 = tail call i32 @llvm.ppu.read.ptx.sreg.ntid.x()
-  %9 = tail call i32 @llvm.ppu.read.ptx.sreg.ntid.y()
+  %5 = tail call i32 @llvm.ppu.read.tix.sreg.tid.x()
+  %6 = tail call i32 @llvm.ppu.read.tix.sreg.tid.y()
+  %7 = tail call i32 @llvm.ppu.read.tix.sreg.tid.z()
+  %8 = tail call i32 @llvm.ppu.read.tix.sreg.ntid.x()
+  %9 = tail call i32 @llvm.ppu.read.tix.sreg.ntid.y()
   %10 = mul i32 %8, %6
   %11 = add i32 %10, %5
   %12 = mul i32 %7, %8
@@ -6348,11 +6348,11 @@ define internal fastcc void @_Z28nvshmemi_barrier_threadgroupIL13threadgroup_t2E
   %4 = alloca i64, align 8
   %5 = alloca i64, align 8
   %6 = alloca i64, align 8
-  %7 = tail call i32 @llvm.ppu.read.ptx.sreg.tid.x()
-  %8 = tail call i32 @llvm.ppu.read.ptx.sreg.tid.y()
-  %9 = tail call i32 @llvm.ppu.read.ptx.sreg.tid.z()
-  %10 = tail call i32 @llvm.ppu.read.ptx.sreg.ntid.x()
-  %11 = tail call i32 @llvm.ppu.read.ptx.sreg.ntid.y()
+  %7 = tail call i32 @llvm.ppu.read.tix.sreg.tid.x()
+  %8 = tail call i32 @llvm.ppu.read.tix.sreg.tid.y()
+  %9 = tail call i32 @llvm.ppu.read.tix.sreg.tid.z()
+  %10 = tail call i32 @llvm.ppu.read.tix.sreg.ntid.x()
+  %11 = tail call i32 @llvm.ppu.read.tix.sreg.ntid.y()
   %12 = mul i32 %11, %9
   %reass.add = add i32 %12, %8
   %reass.mul = mul i32 %reass.add, %10
@@ -6432,7 +6432,7 @@ define internal fastcc void @_Z28nvshmemi_barrier_threadgroupIL13threadgroup_t2E
   ]
 
 66:                                               ; preds = %19
-  %67 = tail call i32 @llvm.ppu.read.ptx.sreg.ntid.z()
+  %67 = tail call i32 @llvm.ppu.read.tix.sreg.ntid.z()
   %68 = mul i32 %11, %10
   %69 = mul i32 %68, %67
   %.not88.i.i = icmp eq i32 %65, 0
@@ -6549,7 +6549,7 @@ _Z28sync_dissem_pow2_threadgroupILi2ELi1EL13threadgroup_t2EEvi.exit.i: ; preds =
   br label %_Z30nvshmemi_sync_algo_threadgroupIL13threadgroup_t2EEvi.exit
 
 119:                                              ; preds = %19
-  %120 = tail call i32 @llvm.ppu.read.ptx.sreg.ntid.z()
+  %120 = tail call i32 @llvm.ppu.read.tix.sreg.ntid.z()
   %121 = mul i32 %11, %10
   %122 = mul i32 %121, %120
   %.not88.i23.i = icmp eq i32 %65, 0
@@ -6666,7 +6666,7 @@ _Z28sync_dissem_pow2_threadgroupILi4ELi2EL13threadgroup_t2EEvi.exit.i: ; preds =
   br label %_Z30nvshmemi_sync_algo_threadgroupIL13threadgroup_t2EEvi.exit
 
 172:                                              ; preds = %19
-  %173 = tail call i32 @llvm.ppu.read.ptx.sreg.ntid.z()
+  %173 = tail call i32 @llvm.ppu.read.tix.sreg.ntid.z()
   %174 = mul i32 %11, %10
   %175 = mul i32 %174, %173
   %.not88.i46.i = icmp eq i32 %65, 0
@@ -6783,7 +6783,7 @@ _Z28sync_dissem_pow2_threadgroupILi8ELi3EL13threadgroup_t2EEvi.exit.i: ; preds =
   br label %_Z30nvshmemi_sync_algo_threadgroupIL13threadgroup_t2EEvi.exit
 
 225:                                              ; preds = %19
-  %226 = tail call i32 @llvm.ppu.read.ptx.sreg.ntid.z()
+  %226 = tail call i32 @llvm.ppu.read.tix.sreg.ntid.z()
   %227 = mul i32 %11, %10
   %228 = mul i32 %227, %226
   %.not88.i69.i = icmp eq i32 %65, 0
@@ -6900,7 +6900,7 @@ _Z28sync_dissem_pow2_threadgroupILi16ELi4EL13threadgroup_t2EEvi.exit.i: ; preds 
   br label %_Z30nvshmemi_sync_algo_threadgroupIL13threadgroup_t2EEvi.exit
 
 278:                                              ; preds = %19
-  %279 = tail call i32 @llvm.ppu.read.ptx.sreg.ntid.z()
+  %279 = tail call i32 @llvm.ppu.read.tix.sreg.ntid.z()
   %280 = mul i32 %11, %10
   %281 = mul i32 %280, %279
   %.not88.i92.i = icmp eq i32 %65, 0
@@ -7021,7 +7021,7 @@ _Z28sync_dissem_pow2_threadgroupILi32ELi5EL13threadgroup_t2EEvi.exit.i: ; preds 
   br i1 %.not79.i.i.i, label %._crit_edge.i.i.i.thread, label %.lr.ph.i.i.i
 
 ._crit_edge.i.i.i.thread:                         ; preds = %331
-  %332 = tail call i32 @llvm.ppu.read.ptx.sreg.ntid.z()
+  %332 = tail call i32 @llvm.ppu.read.tix.sreg.ntid.z()
   br label %._crit_edge98.i.i.i
 
 .lr.ph.i.i.i:                                     ; preds = %331, %.lr.ph.i.i.i
@@ -7033,7 +7033,7 @@ _Z28sync_dissem_pow2_threadgroupILi32ELi5EL13threadgroup_t2EEvi.exit.i: ; preds 
   br i1 %.not.i.i.i, label %.lr.ph97.i.i.i, label %.lr.ph.i.i.i, !llvm.loop !125
 
 .lr.ph97.i.i.i:                                   ; preds = %.lr.ph.i.i.i
-  %335 = tail call i32 @llvm.ppu.read.ptx.sreg.ntid.z()
+  %335 = tail call i32 @llvm.ppu.read.tix.sreg.ntid.z()
   %336 = mul i32 %11, %10
   %337 = mul i32 %336, %335
   %338 = add nsw i32 %13, 1
@@ -7161,11 +7161,11 @@ _Z30nvshmemi_sync_algo_threadgroupIL13threadgroup_t2EEvi.exit: ; preds = %_Z28sy
 
 ; Function Attrs: convergent mustprogress noinline nounwind null_pointer_is_valid
 define internal fastcc void @_Z23nvshmemi_transfer_quietIL13threadgroup_t2EEvb() unnamed_addr #40 section ".text.compute" {
-  %1 = tail call i32 @llvm.ppu.read.ptx.sreg.tid.x()
-  %2 = tail call i32 @llvm.ppu.read.ptx.sreg.tid.y()
-  %3 = tail call i32 @llvm.ppu.read.ptx.sreg.tid.z()
-  %4 = tail call i32 @llvm.ppu.read.ptx.sreg.ntid.x()
-  %5 = tail call i32 @llvm.ppu.read.ptx.sreg.ntid.y()
+  %1 = tail call i32 @llvm.ppu.read.tix.sreg.tid.x()
+  %2 = tail call i32 @llvm.ppu.read.tix.sreg.tid.y()
+  %3 = tail call i32 @llvm.ppu.read.tix.sreg.tid.z()
+  %4 = tail call i32 @llvm.ppu.read.tix.sreg.ntid.x()
+  %5 = tail call i32 @llvm.ppu.read.tix.sreg.ntid.y()
   %6 = mul i32 %4, %2
   %7 = add i32 %6, %1
   %8 = load i32, ptr addrspace(4) getelementptr inbounds nuw (i8, ptr addrspace(4) @nvshmemi_device_state_d, i32 24), align 8
@@ -7213,34 +7213,34 @@ _Z20nvshmemi_proxy_quietb.exit:                   ; preds = %23
 declare dso_local i64 @llvm.ppu.read.printf.buf.addr() #9
 
 ; Function Attrs: nofree nosync nounwind memory(none)
-declare i32 @llvm.ppu.read.ptx.sreg.ctaid.x() #12
+declare i32 @llvm.ppu.read.tix.sreg.ctaid.x() #12
 
 ; Function Attrs: nofree nosync nounwind memory(none)
-declare i32 @llvm.ppu.read.ptx.sreg.nctaid.x() #12
+declare i32 @llvm.ppu.read.tix.sreg.nctaid.x() #12
 
 ; Function Attrs: nofree nosync nounwind memory(none)
-declare i32 @llvm.ppu.read.ptx.sreg.ctaid.y() #12
+declare i32 @llvm.ppu.read.tix.sreg.ctaid.y() #12
 
 ; Function Attrs: nofree nosync nounwind memory(none)
-declare i32 @llvm.ppu.read.ptx.sreg.tid.x() #12
+declare i32 @llvm.ppu.read.tix.sreg.tid.x() #12
 
 ; Function Attrs: nofree nosync nounwind memory(none)
-declare i32 @llvm.ppu.read.ptx.sreg.ntid.x() #12
+declare i32 @llvm.ppu.read.tix.sreg.ntid.x() #12
 
 ; Function Attrs: nofree nosync nounwind memory(none)
-declare i32 @llvm.ppu.read.ptx.sreg.tid.y() #12
+declare i32 @llvm.ppu.read.tix.sreg.tid.y() #12
 
 ; Function Attrs: nofree nosync nounwind memory(none)
-declare i32 @llvm.ppu.read.ptx.sreg.ntid.y() #12
+declare i32 @llvm.ppu.read.tix.sreg.ntid.y() #12
 
 ; Function Attrs: nofree nosync nounwind memory(none)
-declare i32 @llvm.ppu.read.ptx.sreg.tid.z() #12
+declare i32 @llvm.ppu.read.tix.sreg.tid.z() #12
 
 ; Function Attrs: nofree nosync nounwind memory(none)
-declare i32 @llvm.ppu.read.ptx.sreg.ntid.z() #12
+declare i32 @llvm.ppu.read.tix.sreg.ntid.z() #12
 
 ; Function Attrs: nofree nosync nounwind memory(none)
-declare i32 @llvm.ppu.read.ptx.sreg.ctaid.z() #12
+declare i32 @llvm.ppu.read.tix.sreg.ctaid.z() #12
 
 ; Function Attrs: nocallback nofree nosync nounwind speculatable willreturn memory(none)
 declare float @llvm.copysign.f32(float, float) #41
