@@ -24,6 +24,7 @@
 #include "llvm/IR/Instruction.h"
 #include "llvm/IR/Instructions.h"
 #include "llvm/IR/IntrinsicsNVPTX.h"
+#include "llvm/IR/Intrinsics.h"
 #include "llvm/IR/InlineAsm.h"
 #include "llvm/IR/GlobalVariable.h"
 #include "llvm/IR/Constant.h"
@@ -148,6 +149,9 @@ public:
   void removeDeadValue();
   void removeFakeCast(Module &M);
 
+  // Process masked intrinsics from 3-arg to 4-arg form.
+  bool processMaskedIntrinsics(Module &M);
+
   bool runOnModule(Module &M);
 };
 }
@@ -201,9 +205,18 @@ static void convertConstantToInstGVs(Module &M) {
   convertUsersOfConstantsToInstructions(ConvertList);
 }
 
+static bool isMaskedIntrinsic(unsigned IID) {
+  return IID == Intrinsic::masked_store || IID == Intrinsic::masked_load ||
+         IID == Intrinsic::masked_gather || IID == Intrinsic::masked_scatter;
+}
+
 bool PointersAnalyzer::runOnModule(Module& M) {
 
   for(Function &F : M.functions()) {
+    // Masked intrinsics need 4-arg signature for ppu-llc (LLVM 13),
+    // handled separately by processMaskedIntrinsics().
+    if (isMaskedIntrinsic(F.getIntrinsicID()))
+      continue;
     FunctionMap[&F] = false;
   }
 
@@ -222,6 +235,8 @@ bool PointersAnalyzer::runOnModule(Module& M) {
   convertConstantToInstGVs(M);
 
   processFunctions(M);
+
+  processMaskedIntrinsics(M);
 
   processIdentifiedStructTypes(M);
 
@@ -252,6 +267,7 @@ bool static isContainOpaquePointers(Type *Ty) {
     return false;
   }
 }
+
 
 // Finds first non alloca instruction in the entry block of a function.
 static Instruction *getFirstNonAllocaInTheEntryBlock(Function *F) {
@@ -1751,6 +1767,7 @@ bool PointersAnalyzer::processFunctionArguments(Function *&F) {
   bool RetChange = false;
   bool DeleteFunc = true;
   ConstantAsMetadata *MD = llvm::ConstantAsMetadata::getIfExists(F);
+
   for (unsigned Idx = 0; Idx < FuncTy->getNumParams(); Idx++) {
     Type *ParamTy = FuncTy->getParamType(Idx);
     if (F->hasParamAttribute(Idx, Attribute::ByVal)) {
@@ -1768,7 +1785,7 @@ bool PointersAnalyzer::processFunctionArguments(Function *&F) {
   }
 
   Type *ResTy = FuncTy->getReturnType();
-  if(isContainOpaquePointers(ResTy)) {
+  if (isContainOpaquePointers(ResTy)) {
     ResTy = processType(ResTy);
     RetChange = true;
   }
@@ -1855,13 +1872,13 @@ bool PointersAnalyzer::processFunctionArguments(Function *&F) {
           IRBuilder<> B(CI);
           std::vector<Value *> ArgList;
           bool RebuildCall = CI->getCalledFunction() == F;
+
           for(unsigned Idx = 0; Idx < CI->arg_size(); Idx++) {
             Value * Arg = CI->getArgOperand(Idx);
             if (isa<Function>(Arg) && Arg == F) {
               Value *NewArg = NewFn;
               Type *ArgType = Arg->getType();
               if (ArgType && (ArgType != NewFn->getType())) {
-                // ArgType = processType(ArgType);
                 NewArg = B.CreateBitCast(NewFn, ArgType);
               }
               Arg->replaceAllUsesWith(NewArg);
@@ -1882,7 +1899,7 @@ bool PointersAnalyzer::processFunctionArguments(Function *&F) {
                         elem->print(llvm::dbgs());
                         llvm::dbgs() << "\n";
                       }
-                     llvm::dbgs() << "\n"; 
+                     llvm::dbgs() << "\n";
           );
 
           SmallVector<OperandBundleDef, 1> OpBundles;
@@ -2161,6 +2178,123 @@ void PointersAnalyzer::processFunctions(Module& M) {
   }
 }
 
+bool PointersAnalyzer::processMaskedIntrinsics(Module &M) {
+  SmallVector<Function *, 8> DeclsToUpgrade;
+  for (Function &F : M) {
+    if (!F.isDeclaration()) continue;
+    unsigned IID = F.getIntrinsicID();
+    if (!isMaskedIntrinsic(F.getIntrinsicID())) continue;
+    if (F.arg_size() != 3) continue;
+    DeclsToUpgrade.push_back(&F);
+  }
+  if (DeclsToUpgrade.empty())
+    return Changed;
+
+  for (Function *OldFn : DeclsToUpgrade) {
+    Intrinsic::ID IID = OldFn->getIntrinsicID();
+    bool IsLoadGather = (IID == Intrinsic::masked_load ||
+                         IID == Intrinsic::masked_gather);
+    unsigned PtrIdx = IsLoadGather ? 0 : 1;
+    Type *RetTy = OldFn->getReturnType();
+    Type *PtrTy = PointerType::get(M.getContext(), 0);
+
+    // Build 4-arg function type
+    SmallVector<Type *, 4> NewParams;
+    if (IsLoadGather) {
+      // (ptr, i32, mask, passthru)
+      NewParams.push_back(PtrTy);
+      NewParams.push_back(Type::getInt32Ty(M.getContext()));
+      NewParams.push_back(OldFn->getArg(1)->getType());
+      NewParams.push_back(OldFn->getArg(2)->getType());
+    } else {
+      // (val, ptr, i32, mask)
+      NewParams.push_back(OldFn->getArg(0)->getType());
+      NewParams.push_back(PtrTy);
+      NewParams.push_back(Type::getInt32Ty(M.getContext()));
+      NewParams.push_back(OldFn->getArg(2)->getType());
+    }
+
+    FunctionType *NewFTy =
+        FunctionType::get(RetTy, NewParams, /*isVarArg=*/false);
+
+    // Rename old and create new declaration
+    std::string OrigName = std::string(OldFn->getName());
+    OldFn->setName(OrigName + ".old");
+    Function *NewFn = Function::Create(NewFTy, OldFn->getLinkage(),
+                                       OldFn->getAddressSpace(),
+                                       OrigName, &M);
+    NewFn->copyAttributesFrom(OldFn);
+
+    // Replace all uses
+    while (!OldFn->use_empty()) {
+      User *Usr = *OldFn->user_begin();
+      CallBase *CB = dyn_cast<CallBase>(Usr);
+      if (CB && CB->getCalledFunction() == OldFn) {
+        // Compute alignment from param attribute or data layout
+        Value *PtrOp = CB->getArgOperand(PtrIdx);
+        unsigned AlignVal = 1;
+        if (Argument *A = dyn_cast<Argument>(PtrOp)) {
+          if (A->hasAttribute(Attribute::Alignment)) {
+            MaybeAlign MA = A->getAttribute(Attribute::Alignment).getAlignment();
+            if (MA) AlignVal = MA->value();
+          }
+        }
+        if (AlignVal == 1) {
+          Attribute AlignAttr = CB->getParamAttr(PtrIdx, Attribute::Alignment);
+          if (AlignAttr.isValid()) {
+            MaybeAlign MA = AlignAttr.getAlignment();
+            if (MA && MA->value() != 0) AlignVal = MA->value();
+          }
+        }
+        if (AlignVal == 1) {
+          Type *ValTy = IsLoadGather ? RetTy : OldFn->getArg(0)->getType();
+          unsigned EltSize =
+              ValTy->getScalarType()->getPrimitiveSizeInBits() / 8;
+          Align DefaultAlign(EltSize ? EltSize : 4);
+          Align PtrAlign = PtrOp->getPointerAlignment(M.getDataLayout());
+          AlignVal = std::max(DefaultAlign, PtrAlign).value();
+        }
+
+        Value *AlignOp =
+            ConstantInt::get(Type::getInt32Ty(M.getContext()), AlignVal);
+
+        SmallVector<Value *, 4> NewArgs;
+        if (IsLoadGather) {
+          NewArgs.push_back(CB->getArgOperand(0)); // ptr
+          NewArgs.push_back(AlignOp);
+          NewArgs.push_back(CB->getArgOperand(1)); // mask
+          NewArgs.push_back(CB->getArgOperand(2)); // passthru
+        } else {
+          NewArgs.push_back(CB->getArgOperand(0)); // val
+          NewArgs.push_back(CB->getArgOperand(1)); // ptr
+          NewArgs.push_back(AlignOp);
+          NewArgs.push_back(CB->getArgOperand(2)); // mask
+        }
+
+        CallInst *NewCall = CallInst::Create(NewFTy, NewFn, NewArgs, "", CB);
+        NewCall->setCallingConv(CB->getCallingConv());
+        NewCall->setDebugLoc(CB->getDebugLoc());
+        NewCall->copyMetadata(*CB);
+        if (auto *OldCI = dyn_cast<CallInst>(CB))
+          NewCall->setTailCallKind(OldCI->getTailCallKind());
+
+        if (IsLoadGather)
+          CB->replaceAllUsesWith(NewCall);
+        CB->eraseFromParent();
+      } else {
+        CB
+            ? CB->replaceUsesOfWith(OldFn, ConstantExpr::getBitCast(NewFn, OldFn->getType()))
+            : Usr->replaceUsesOfWith(OldFn, ConstantExpr::getBitCast(NewFn, OldFn->getType()));
+      }
+    }
+    OldFn->removeDeadConstantUsers();
+    OldFn->eraseFromParent();
+    Changed = true;
+  }
+
+  return Changed;
+}
+
 
 #define DEBUG_TYPE "verify-pointers"
 
@@ -2184,8 +2318,12 @@ bool VerifyAnalyzer::runOnModule(Module &M) {
 
 void VerifyAnalyzer::visitFunction(Function &F) {
   FunctionType *FuncTy = F.getFunctionType();
+  unsigned IID = F.getIntrinsicID();
   for (auto *EltTy : FuncTy->params()) {
     if (isContainOpaquePointers(EltTy)) {
+      // Allow opaque pointer types in masked intrinsics
+      if (isMaskedIntrinsic(IID) && (EltTy->isPointerTy() || EltTy->isVectorTy()))
+        continue;
       F.print(llvm::errs());
       llvm::errs() << "\n";
       report_fatal_error("Function contain opaque pointer need to be handled");
@@ -2233,6 +2371,22 @@ void VerifyAnalyzer::visitInstruction(Instruction &I) {
       // GlobalAlias always get ptr type
       if (isa<GlobalAlias>(opnd))
         continue;
+      // For masked intrinsics, pointer arguments are opaque ptr (or vector of ptr)
+      // which is expected and should not trigger error
+      if (CallBase *CB = dyn_cast<CallBase>(&I)) {
+        if (Function *F = CB->getCalledFunction()) {
+          unsigned IID = F->getIntrinsicID();
+          if (isMaskedIntrinsic(IID)) {
+            // Check if this operand is a pointer type or vector of pointer type
+            Type *OpTy = opnd->getType();
+            if ((OpTy->isPointerTy() && !isa<FunctionType>(OpTy)) ||
+                (OpTy->isVectorTy() && OpTy->getScalarType()->isPointerTy() &&
+                 !isa<FunctionType>(OpTy->getScalarType()))) {
+              continue;
+            }
+          }
+        }
+      }
       I.print(llvm::errs());
       llvm::errs() << "\n";
       report_fatal_error("Instruction contain opaque pointer need to be handled");

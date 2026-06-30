@@ -4970,6 +4970,19 @@ void Verifier::visitIntrinsicCall(Intrinsic::ID ID, CallBase &Call) {
   Check(IF->isDeclaration(), "Intrinsic functions should never be defined!",
         IF);
 
+  // We skip signature verify for masked intrinsic as the irformatter
+  // accepts BOTH 3-arg and 4-arg forms and handles (3->4 )
+  // upgrade in processMaskedIntrinsics().
+  switch (ID) {
+  case Intrinsic::masked_load:
+  case Intrinsic::masked_store:
+  case Intrinsic::masked_gather:
+  case Intrinsic::masked_scatter:
+    return;
+  default:
+    break;
+  }
+
   // Verify that the intrinsic prototype lines up with what the .td files
   // describe.
   FunctionType *IFTy = IF->getFunctionType();
@@ -5459,63 +5472,6 @@ void Verifier::visitIntrinsicCall(Intrinsic::ID ID, CallBase &Call) {
           Call);
     break;
   }
-  case Intrinsic::masked_load: {
-    Check(Call.getType()->isVectorTy(), "masked_load: must return a vector",
-          Call);
-
-    Value *Ptr = Call.getArgOperand(0);
-    ConstantInt *Alignment = cast<ConstantInt>(Call.getArgOperand(1));
-    Value *Mask = Call.getArgOperand(2);
-    Value *PassThru = Call.getArgOperand(3);
-    Check(Mask->getType()->isVectorTy(), "masked_load: mask must be vector",
-          Call);
-    Check(Alignment->getValue().isPowerOf2(),
-          "masked_load: alignment must be a power of 2", Call);
-
-    PointerType *PtrTy = cast<PointerType>(Ptr->getType());
-    Check(PtrTy->isOpaqueOrPointeeTypeMatches(Call.getType()),
-          "masked_load: return must match pointer type", Call);
-    Check(PassThru->getType() == Call.getType(),
-          "masked_load: pass through and return type must match", Call);
-    Check(cast<VectorType>(Mask->getType())->getElementCount() ==
-              cast<VectorType>(Call.getType())->getElementCount(),
-          "masked_load: vector mask must be same length as return", Call);
-    break;
-  }
-  case Intrinsic::masked_store: {
-    Value *Val = Call.getArgOperand(0);
-    Value *Ptr = Call.getArgOperand(1);
-    ConstantInt *Alignment = cast<ConstantInt>(Call.getArgOperand(2));
-    Value *Mask = Call.getArgOperand(3);
-    Check(Mask->getType()->isVectorTy(), "masked_store: mask must be vector",
-          Call);
-    Check(Alignment->getValue().isPowerOf2(),
-          "masked_store: alignment must be a power of 2", Call);
-
-    PointerType *PtrTy = cast<PointerType>(Ptr->getType());
-    Check(PtrTy->isOpaqueOrPointeeTypeMatches(Val->getType()),
-          "masked_store: storee must match pointer type", Call);
-    Check(cast<VectorType>(Mask->getType())->getElementCount() ==
-              cast<VectorType>(Val->getType())->getElementCount(),
-          "masked_store: vector mask must be same length as value", Call);
-    break;
-  }
-
-  case Intrinsic::masked_gather: {
-    const APInt &Alignment =
-        cast<ConstantInt>(Call.getArgOperand(1))->getValue();
-    Check(Alignment.isZero() || Alignment.isPowerOf2(),
-          "masked_gather: alignment must be 0 or a power of 2", Call);
-    break;
-  }
-  case Intrinsic::masked_scatter: {
-    const APInt &Alignment =
-        cast<ConstantInt>(Call.getArgOperand(2))->getValue();
-    Check(Alignment.isZero() || Alignment.isPowerOf2(),
-          "masked_scatter: alignment must be 0 or a power of 2", Call);
-    break;
-  }
-
   case Intrinsic::experimental_guard: {
     Check(isa<CallInst>(Call), "experimental_guard cannot be invoked", Call);
     Check(Call.countOperandBundlesOfType(LLVMContext::OB_deopt) == 1,

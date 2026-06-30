@@ -487,10 +487,12 @@ enum Kind {
   DISPFlag,         // DISPFlagFoo
   DwarfMacinfo,     // DW_MACINFO_foo
   ChecksumKind,     // CSK_foo
+  FloatLiteral,     // Unparsed float literal
 
   // Type valued tokens (TyVal).
   Type,
 
+  FloatHexLiteral, // f0x..., stored as APSInt
   APFloat, // APFloatVal
   APSInt   // APSInt
 };

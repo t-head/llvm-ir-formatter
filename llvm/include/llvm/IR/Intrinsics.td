@@ -2162,29 +2162,27 @@ def int_experimental_vp_splice:
 //
 def int_masked_load:
   DefaultAttrsIntrinsic<[llvm_anyvector_ty],
-            [LLVMAnyPointerType<LLVMMatchType<0>>, llvm_i32_ty,
+            [LLVMAnyPointerType<LLVMMatchType<0>>,
              LLVMScalarOrSameVectorWidth<0, llvm_i1_ty>, LLVMMatchType<0>],
-            [IntrReadMem, IntrArgMemOnly, IntrWillReturn, ImmArg<ArgIndex<1>>,
-             NoCapture<ArgIndex<0>>]>;
+            [IntrReadMem, IntrArgMemOnly, NoCapture<ArgIndex<0>>]>;
 
 def int_masked_store:
   DefaultAttrsIntrinsic<[],
             [llvm_anyvector_ty, LLVMAnyPointerType<LLVMMatchType<0>>,
-             llvm_i32_ty, LLVMScalarOrSameVectorWidth<0, llvm_i1_ty>],
-            [IntrWriteMem, IntrArgMemOnly, IntrWillReturn,
-             ImmArg<ArgIndex<2>>, NoCapture<ArgIndex<1>>]>;
+             LLVMScalarOrSameVectorWidth<0, llvm_i1_ty>],
+            [IntrWriteMem, IntrArgMemOnly, NoCapture<ArgIndex<1>>]>;
 
 def int_masked_gather:
   DefaultAttrsIntrinsic<[llvm_anyvector_ty],
-            [LLVMVectorOfAnyPointersToElt<0>, llvm_i32_ty,
+            [LLVMVectorOfAnyPointersToElt<0>,
              LLVMScalarOrSameVectorWidth<0, llvm_i1_ty>, LLVMMatchType<0>],
-            [IntrReadMem, IntrWillReturn, ImmArg<ArgIndex<1>>]>;
+            [IntrReadMem, IntrWillReturn]>;
 
 def int_masked_scatter:
   DefaultAttrsIntrinsic<[],
-            [llvm_anyvector_ty, LLVMVectorOfAnyPointersToElt<0>, llvm_i32_ty,
+            [llvm_anyvector_ty, LLVMVectorOfAnyPointersToElt<0>,
              LLVMScalarOrSameVectorWidth<0, llvm_i1_ty>],
-            [IntrWriteMem, IntrWillReturn, ImmArg<ArgIndex<2>>]>;
+            [IntrWriteMem, IntrWillReturn]>;
 
 def int_masked_expandload:
   DefaultAttrsIntrinsic<[llvm_anyvector_ty],

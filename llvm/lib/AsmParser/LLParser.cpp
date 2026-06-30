@@ -3696,6 +3696,37 @@ bool LLParser::parseValID(ValID &ID, PerFunctionState *PFS, Type *ExpectedTy) {
     ID.APSIntVal = Lex.getAPSIntVal();
     ID.Kind = ValID::t_APSInt;
     break;
+  case lltok::FloatLiteral: {
+    if (!ExpectedTy)
+      return error(ID.Loc, "unexpected floating-point literal");
+    if (!ExpectedTy->isFloatingPointTy())
+      return error(ID.Loc, "floating-point constant invalid for type");
+    ID.APFloatVal = APFloat(ExpectedTy->getFltSemantics());
+    APFloat::opStatus Except =
+        cantFail(ID.APFloatVal.convertFromString(
+                     Lex.getStrVal(), RoundingMode::NearestTiesToEven),
+                 "Invalid float strings should be caught by the lexer");
+    // Forbid overflowing and underflowing literals, but permit inexact
+    // literals. Underflow is thrown when the result is denormal, so to allow
+    // denormals, only reject underflowing literals that resulted in a zero.
+    if (Except & APFloat::opOverflow)
+      return error(ID.Loc, "floating-point constant overflowed type");
+    if ((Except & APFloat::opUnderflow) && ID.APFloatVal.isZero())
+      return error(ID.Loc, "floating-point constant underflowed type");
+    ID.Kind = ValID::t_APFloat;
+    break;
+  }
+  case lltok::FloatHexLiteral: {
+    if (!ExpectedTy)
+      return error(ID.Loc, "unexpected floating-point literal");
+    const auto &Semantics = ExpectedTy->getFltSemantics();
+    const APInt &Bits = Lex.getAPSIntVal();
+    if (APFloat::getSizeInBits(Semantics) != Bits.getBitWidth())
+      return error(ID.Loc, "float hex literal has incorrect number of bits");
+    ID.APFloatVal = APFloat(Semantics, Bits);
+    ID.Kind = ValID::t_APFloat;
+    break;
+  }
   case lltok::APFloat:
     ID.APFloatVal = Lex.getAPFloatVal();
     ID.Kind = ValID::t_APFloat;
