@@ -3117,7 +3117,8 @@ bool IEEEFloat::convertFromStringSpecials(StringRef str) {
   if (str.size() < MIN_NAME_SIZE)
     return false;
 
-  if (str.equals("inf") || str.equals("INFINITY") || str.equals("+Inf")) {
+  if (str.equals("inf") || str.equals("INFINITY") || str.equals("+Inf") ||
+      str.equals("+inf")) {
     makeInf(false);
     return true;
   }
