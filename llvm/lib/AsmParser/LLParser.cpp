@@ -8305,16 +8305,28 @@ int LLParser::parseInsertValue(Instruction *&Inst, PerFunctionState &PFS) {
 //===----------------------------------------------------------------------===//
 
 /// parseDbgValue
-///   ::= '#dbg_value' '(' TypeAndValue ',' Metadata ',' Metadata ',' Metadata ')'
+///   ::= '#dbg_value' '(' (TypeAndValue | !DIArgList(TypeAndValue, ...))
+///       ',' Metadata ',' Metadata ',' Metadata ')'
 bool LLParser::parseDbgValue(Instruction *&Inst, PerFunctionState &PFS) {
   if (parseToken(lltok::lparen, "expected '(' after #dbg_value"))
     return true;
 
-  // Parse: type value (the debug value operand)
-  // We don't actually create a DbgValueInst, we just skip this line.
-  Value *V;
-  if (parseTypeAndValue(V, &PFS))
-    return true;
+  // Parse the debug value operand: either a `type value` pair, or a
+  // `!DIArgList(type value, ...)` metadata node (newer LLVM syntax for
+  // multi-value/CFA-based debug values). We don't actually create a
+  // DbgValueInst, we just skip this line. Note the lexer emits `!foo`
+  // as a single MetadataVar token, while `!` followed by a digit or
+  // brace is a bare exclaim token, so both kinds must be routed to
+  // parseMetadata.
+  if (Lex.getKind() == lltok::exclaim || Lex.getKind() == lltok::MetadataVar) {
+    Metadata *MD;
+    if (parseMetadata(MD, &PFS))
+      return true;
+  } else {
+    Value *V;
+    if (parseTypeAndValue(V, &PFS))
+      return true;
+  }
   if (parseToken(lltok::comma, "expected comma after dbg_value operand"))
     return true;
   {
