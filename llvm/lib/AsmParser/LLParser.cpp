@@ -6702,12 +6702,23 @@ int LLParser::parseInstruction(Instruction *&Inst, BasicBlock *BB,
 
   // Casts.
   case lltok::kw_uitofp:
-  case lltok::kw_zext: {
-    // newer llvm version support nneg(none-negative) flag which specififes
-    // that the operand is non-negative and would help to convert zext to sext
-    // in the later optimization passes. We will just ignore the flag here.
+  case lltok::kw_zext:
+  case lltok::kw_fptrunc:
+  case lltok::kw_fpext:
+  case lltok::kw_sitofp: {
+    // Newer LLVM versions (>= 19) allow fast-math flags on these
+    // instructions: currently only 'nnan' on fptrunc/fpext/sitofp/uitofp,
+    // and 'nneg' (none-negative) on zext/uitofp, which would help to
+    // convert zext to sext in the later optimization passes. This LLVM 17
+    // IR model cannot store fast-math flags on cast instructions and no
+    // PPU pass consumes them, so we will just ignore the flags here.
     // https://github.com/llvm/llvm-project/pull/67982
-    bool NonNeg = EatIfPresent(lltok::kw_nneg);
+    bool progress;
+    do {
+      bool P = EatIfPresent(lltok::kw_nneg);
+      FastMathFlags FMF = EatFastMathFlagsIfPresent();
+      progress = P || FMF.any();
+    } while (progress);
     return parseCast(Inst, PFS, KeywordVal);
   }
   case lltok::kw_trunc: {
@@ -6718,11 +6729,8 @@ int LLParser::parseInstruction(Instruction *&Inst, BasicBlock *BB,
     return parseCast(Inst, PFS, KeywordVal);
   }
   case lltok::kw_sext:
-  case lltok::kw_fptrunc:
-  case lltok::kw_fpext:
   case lltok::kw_bitcast:
   case lltok::kw_addrspacecast:
-  case lltok::kw_sitofp:
   case lltok::kw_fptoui:
   case lltok::kw_fptosi:
   case lltok::kw_inttoptr:
