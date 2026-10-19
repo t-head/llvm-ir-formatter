@@ -1,39 +1,69 @@
-# The LLVM Compiler Infrastructure
+# LLVM IR Formatter
 
-Welcome to the LLVM project!
+A command-line tool that converts opaque pointers to typed pointers and rewrites `memory(...)` attributes for compatibility with older LLVM toolchains.
 
-This repository contains the source code for LLVM, a toolkit for the
-construction of highly optimized compilers, optimizers, and run-time
-environments.
+For example, [triton-for-sail](https://github.com/t-head/triton-for-sail/blob/235464c50eb706e09b981198c1117b5a5e6c91b2/third_party/ppu/backend/compiler.py#L471) uses it to prepare LLVM IR for PPU code generation.
 
-The LLVM project has multiple components. The core of the project is
-itself called "LLVM". This contains all of the tools, libraries, and header
-files needed to process intermediate representations and convert them into
-object files. Tools include an assembler, disassembler, bitcode analyzer, and
-bitcode optimizer.
+## Build
 
-C-like languages use the [Clang](http://clang.llvm.org/) frontend. This
-component compiles C, C++, Objective-C, and Objective-C++ code into LLVM bitcode
--- and from there into object files, using LLVM.
+Run from the repository root:
 
-Other components include:
-the [libc++ C++ standard library](https://libcxx.llvm.org),
-the [LLD linker](https://lld.llvm.org), and more.
+```sh
+./build.sh
+```
 
-## Getting the Source Code and Building LLVM
+The script builds all default targets in Release mode and runs the formatter tests. The executable is `build/bin/llvm-irformatter`; no separate LLVM installation is required.
 
-Consult the
-[Getting Started with LLVM](https://llvm.org/docs/GettingStarted.html#getting-the-source-code-and-building-llvm)
-page for information on building and running LLVM.
+## Usage
 
-For information on how to contribute to the LLVM project, please take a look at
-the [Contributing to LLVM](https://llvm.org/docs/Contributing.html) guide.
+Write converted textual IR:
 
-## Getting in touch
+```sh
+build/bin/llvm-irformatter -S input.ll -o output.ll
+```
 
-Join the [LLVM Discourse forums](https://discourse.llvm.org/), [Discord
-chat](https://discord.gg/xS7Z362), or #llvm IRC channel on
-[OFTC](https://oftc.net/).
+Omit `-S` to write **bitcode**, regardless of the output extension:
 
-The LLVM project has adopted a [code of conduct](https://llvm.org/docs/CodeOfConduct.html) for
-participants to all modes of communication within the project.
+```sh
+build/bin/llvm-irformatter input.ll -o output.bc
+```
+
+Input supports textual IR and compatible bitcode. Input and output default to standard input and standard output; `-` selects either explicitly:
+
+```sh
+build/bin/llvm-irformatter -S < input.ll > output.ll
+```
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `-S` | Off | Write textual IR instead of bitcode |
+| `-o <filename>` | `-` | Output file; `-` means standard output |
+| `--type-pointers=<bool>` | `true` | Convert pointers and apply related compatibility handling |
+| `--trans-memory-attributes=<bool>` | `true` | Convert `memory(...)` to legacy attributes |
+| `--verify-pointers` | Off | Check remaining opaque pointers; not full IR verification |
+| `-f` | Off | Allow binary output to a terminal |
+
+Use `=false` to disable boolean options. `--help-hidden` includes `-S` and use-list order options omitted from `--help`.
+
+Conversion may discard unsupported information; always validate the output with your target toolchain.
+
+## Testing
+
+`./build.sh` runs the formatter tests automatically. To rerun them after building:
+
+```sh
+build/bin/llvm-lit -v llvm/test/tools/llvm-irformatter
+```
+
+Tests cover pointers, attributes, and syntax compatibility, including `llvm18_dev/` and `mlirTrans/`. The latter contains LLVM IR, not MLIR text.
+
+## Source layout
+
+| Path | Purpose |
+| --- | --- |
+| [`llvm/tools/llvm-irformatter/`](llvm/tools/llvm-irformatter/) | CLI and conversion pipeline |
+| [`TypingPointers.cpp`](llvm/lib/Transforms/Utils/TypingPointers.cpp) | Pointer conversion and checks |
+| [`TransMemoryAttr.cpp`](llvm/lib/Transforms/Utils/TransMemoryAttr.cpp) | Memory-attribute conversion |
+| [`llvm/lib/AsmParser/`](llvm/lib/AsmParser/) | Parsing and syntax compatibility |
+| [`AutoUpgrade.cpp`](llvm/lib/IR/AutoUpgrade.cpp) | Intrinsic compatibility |
+| [`llvm/test/tools/llvm-irformatter/`](llvm/test/tools/llvm-irformatter/) | Regression tests |
