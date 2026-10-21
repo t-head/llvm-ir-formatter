@@ -1,0 +1,278 @@
+name: llvm-irformatter CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: CMAKE_BUILD_TYPE
+        type: choice
+        options: [Release, Debug, RelWithDebInfo]
+        default: Release
+      assertions:
+        description: LLVM_ENABLE_ASSERTIONS
+        type: choice
+        options: ['Off', 'On']
+        default: 'Off'
+      triton_ref:
+        description: triton-for-sail ref (release/3.7.x release tag by default)
+        type: string
+        default: '3.7.0+v0.1.0'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: irformatter-ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # Single pin site: same image as triton-for-sail 3.7.0+v0.1.0 PPU CI.
+  CI_IMAGE: download.t-head.cn/docker_release/pytorch:sdk2.2.0-2.13.0-ubuntu24.04-hggcrt3-py312-20261005
+  # Defaults match tmake.build; workflow_dispatch can override them.
+  BUILD_TYPE: ${{ github.event.inputs.build_type || 'Release' }}
+  ENABLE_ASSERT: ${{ github.event.inputs.assertions || 'Off' }}
+  # Triton is rebuilt against the freshly built llvm-irformatter and tested on 890P.
+  TRITON_REPO: t-head/triton-for-sail
+  TRITON_REF: ${{ github.event.inputs.triton_ref || '3.7.0+v0.1.0' }}
+  BOARD_TYPE: ZW-M890P
+
+jobs:
+  build-and-test:
+    # Never run fork pull requests on self-hosted infrastructure.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: k8s-runner-group-cpu-thead
+    container:
+      image: ghcr.io/actions/actions-runner:latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout llvm-ir-formatter
+        uses: actions/checkout@v4
+
+      - name: Checkout triton-for-sail
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.TRITON_REPO }}
+          ref: ${{ env.TRITON_REF }}
+          path: triton-for-sail
+
+      - name: Build irformatter, run UT, rebuild and test Triton on 890P
+        id: build
+        uses: t-head/ppu-scheduler-action@main
+        with:
+          image: ${{ env.CI_IMAGE }}
+          nnodes: 0
+          nproc_per_node: 1
+          node_selector: "board-type=${{ env.BOARD_TYPE }}"
+          namespace: ppu-sched
+          # host /wl_nas -> pod /mnt/wl_nas; the runner reads results back from /wl_nas
+          host_volumes: /nas_aisw:/nas_aisw,/wl_nas:/mnt/wl_nas
+          extra_env: BOARD_TYPE=${{ env.BOARD_TYPE }},BUILD_TYPE=${{ env.BUILD_TYPE }},ENABLE_ASSERT=${{ env.ENABLE_ASSERT }}
+          timeout_minutes: 330
+          command: |
+            set -o pipefail
+            git config --global --add safe.directory '*'
+            # Fix: image bakes in PIP_INDEX_URL pointing to unreachable internal server
+            unset PIP_INDEX_URL
+            # Fix: image bakes in git insteadOf redirecting github.com to unreachable internal gerrit
+            git config --global --unset-all url.https://ai-gerrit.eng.t-head.cn/Public/Github/.insteadOf 2>/dev/null || true
+            SRC=/workspace/source
+            TRITON_SRC=$SRC/triton-for-sail
+            NAS_DIR="/mnt/wl_nas/devops/irformatter-ci/${{ github.run_id }}/${{ github.run_attempt }}"
+            mkdir -p "$NAS_DIR/triton"
+            cd $SRC
+            echo "[INFO] BOARD_TYPE=${BOARD_TYPE} BUILD_TYPE=${BUILD_TYPE} ENABLE_ASSERT=${ENABLE_ASSERT}"
+            echo "[INFO] triton-for-sail ref: ${{ env.TRITON_REF }} ($(git -C $TRITON_SRC rev-parse HEAD))"
+            # PPU SDK and torch are pre-installed in the docker image
+            source /usr/local/PPU_SDK/envsetup.sh
+            ppu-smi || echo "[WARN] ppu-smi failed; PPU device not visible"
+
+            # ═════════ Stage 1: build llvm-irformatter (tmake.build flags) ═════════
+            CMAKE_VER=$(cmake --version 2>/dev/null | head -1 | awk '{print $3}')
+            if [ -z "$CMAKE_VER" ] || [ "$(printf '%s\n' 3.20 "$CMAKE_VER" | sort -V | head -1)" != "3.20" ]; then
+              pip install "cmake>=3.20" || { echo "[FATAL] cannot install cmake"; exit 1; }
+              hash -r
+            fi
+            if ! command -v ninja >/dev/null 2>&1; then
+              pip install ninja || { echo "[FATAL] cannot install ninja"; exit 1; }
+              hash -r
+            fi
+            cmake --version | head -1
+            echo "ninja $(ninja --version)"
+            gcc --version | head -1
+
+            # Respect the pod CPU limit (cgroup v2), falling back to nproc
+            JOBS=$(awk '$1 != "max" { printf "%d", ($1 + $2 - 1) / $2 }' /sys/fs/cgroup/cpu.max 2>/dev/null)
+            JOBS=${JOBS:-$(nproc)}
+            echo "[INFO] ninja jobs: ${JOBS}"
+
+            mkdir -p build && cd build
+            cmake -G Ninja -DCMAKE_BUILD_TYPE=${BUILD_TYPE} \
+                -DLLVM_ENABLE_ASSERTIONS=${ENABLE_ASSERT} \
+                -DLLVM_ENABLE_TERMINFO=OFF \
+                ../llvm -DLLVM_ENABLE_PROJECTS="llvm" -DCMAKE_INSTALL_PREFIX="./output" \
+              || { echo "[FATAL] cmake configure failed"; exit 1; }
+            # Only the tool and what lit needs
+            ninja -j${JOBS} llvm-irformatter FileCheck not count llvm-config \
+              || { echo "[FATAL] ninja build failed"; exit 1; }
+            # Install (as tmake.build)
+            mkdir -p output/bin && cp bin/llvm-irformatter output/bin/
+            ./output/bin/llvm-irformatter --version || { echo "[FATAL] installed binary does not run"; exit 1; }
+            export TRITON_IR_FORMATTER_PATH=$SRC/build/output/bin/llvm-irformatter
+            cp "$TRITON_IR_FORMATTER_PATH" "$NAS_DIR/" || echo "[WARN] failed to copy llvm-irformatter to NAS"
+
+            # ═════════ Stage 2: llvm-irformatter UT (lit) ═════════
+            ./bin/llvm-lit -v --xunit-xml-output lit_result.xml \
+                $SRC/llvm/test/tools/llvm-irformatter/ || UT_RC=$?
+            UT_RC=${UT_RC:-0}
+            cp lit_result.xml "$NAS_DIR/" || echo "[WARN] failed to copy lit_result.xml to NAS"
+            echo "[INFO] llvm-irformatter UT exit code: ${UT_RC}"
+
+            # ═════════ Stage 3: rebuild Triton with this formatter and run its tests ═════════
+            cd $TRITON_SRC
+            # Uninstall any image-bundled triton before building from source
+            echo "[INFO] triton-related packages before uninstall:"; pip list 2>/dev/null | grep -i triton || true
+            for pkg in $(pip list --format=freeze 2>/dev/null | grep -iE '^[^=]*triton[^=]*=' | cut -d= -f1); do
+              pip uninstall -y "$pkg" || true
+            done
+            pip uninstall -y triton pytorch-triton triton-nightly 2>/dev/null || true
+            if python -c "import triton" 2>/dev/null; then
+              SP=$(python -c "import sys; print(next((p for p in sys.path if p.endswith('site-packages')), ''))" 2>/dev/null || true)
+              if [ -n "$SP" ]; then
+                rm -rf "$SP"/triton "$SP"/triton-*.dist-info "$SP"/triton-*.egg-info "$SP"/__editable__*triton* "$SP"/*triton*.pth 2>/dev/null || true
+              fi
+              if python -c "import triton" 2>/dev/null; then
+                echo "[FATAL] image-bundled triton could NOT be removed; aborting to guarantee source-only build"; exit 1
+              fi
+            fi
+            # Triton dep cache: copy pre-seeded LLVM/deps from NAS to ~/.triton (same as triton-for-sail CI)
+            TRITON_DEP_CACHE=/mnt/wl_nas/cache/triton
+            _llvm=$( (python3 -c "import json;print(json.load(open('cmake/llvm-info.json'))['llvm_hash'])" 2>/dev/null || cat cmake/llvm-hash.txt 2>/dev/null) | cut -c1-8)
+            _dep=$(cat cmake/*.json cmake/*.txt 2>/dev/null | sha256sum | cut -c1-8)
+            _src=$TRITON_DEP_CACHE/llvm-${_llvm}-${_dep}
+            _dst=${TRITON_HOME:-$HOME}/.triton
+            if [ -n "$_llvm" ] && [ -f "$_src/SEEDED_BY" ] && [ -d "$_src/.triton" ]; then
+              echo "[triton-cache] copy $_src/.triton -> $_dst"
+              mkdir -p "$_dst"
+              if cp -a "$_src/.triton/." "$_dst/"; then
+                find "$_dst/llvm" -maxdepth 1 -type l -delete 2>/dev/null || true
+              else
+                echo "[triton-cache] copy failed, fallback to download"
+                rm -rf "$_dst"
+              fi
+            else
+              echo "[triton-cache] no cache for llvm-${_llvm}-${_dep}, skip"
+            fi
+            # TRITON_IR_FORMATTER_PATH (exported above) makes setup.py bundle our formatter
+            echo "[INFO] TRITON_IR_FORMATTER_PATH=${TRITON_IR_FORMATTER_PATH}"
+            export MAX_JOBS=16
+            pip install pybind11 setuptools==68.1.2
+            pip install -e . -v || { echo "[FATAL] triton editable build failed"; exit 1; }
+            python -c "import triton, sys; f=getattr(triton,'__file__',''); print('[INFO] triton.__file__ =', f); print('[INFO] triton.__version__ =', getattr(triton,'__version__','?')); sys.exit(0 if '$TRITON_SRC' in f else 1)" \
+              || { echo "[FATAL] imported triton is NOT the source-built one"; exit 1; }
+            # Guarantee the PPU backend resolves to the freshly built formatter, not $PPU_SDK/bin
+            python - << 'PYEOF' || { echo "[FATAL] triton does not use the freshly built llvm-irformatter"; exit 1; }
+            import os, sys
+            from triton.backends.ppu.compiler import get_irformatter
+            got = os.path.realpath(get_irformatter())
+            want = os.path.realpath(os.environ["TRITON_IR_FORMATTER_PATH"])
+            print(f"[INFO] triton irformatter = {got}")
+            sys.exit(0 if got == want else 1)
+            PYEOF
+            pip install -r python/test-requirements.txt pandas
+            python .github/ppu-ci/run_checkin_tests.py -o test_result.xml --test-dir $TRITON_SRC --env-output env_info.json || TRITON_RC=$?
+            TRITON_RC=${TRITON_RC:-0}
+            cp test_result.xml env_info.json "$NAS_DIR/triton/" || echo "[WARN] failed to copy triton results to NAS"
+            echo "[INFO] triton tests exit code: ${TRITON_RC}"
+
+            # Fail the job if either the formatter UT or the Triton tests failed
+            [ "$UT_RC" -eq 0 ] && [ "$TRITON_RC" -eq 0 ]
+          cleanup_policy: always
+
+      - name: llvm-irformatter UT summary
+        if: ${{ !cancelled() }}
+        shell: bash
+        env:
+          RESULT_XML: /wl_nas/devops/irformatter-ci/${{ github.run_id }}/${{ github.run_attempt }}/lit_result.xml
+          JOB_STATUS: ${{ steps.build.outputs.job_status }}
+          DURATION: ${{ steps.build.outputs.duration_seconds }}
+          TASK_PODS: ${{ steps.build.outputs.task_pods }}
+        run: |
+          python3 >> "$GITHUB_STEP_SUMMARY" << 'PYEOF'
+          import os
+          import xml.etree.ElementTree as ET
+
+          env = os.environ
+          print("## llvm-irformatter UT")
+          print()
+          print("| Item | Value |")
+          print("| --- | --- |")
+          print(f"| Image | `{env['CI_IMAGE']}` |")
+          print(f"| Board | {env['BOARD_TYPE']} |")
+          print(f"| Build type | {env['BUILD_TYPE']} |")
+          print(f"| Assertions | {env['ENABLE_ASSERT']} |")
+          print(f"| Triton | {env['TRITON_REPO']}@{env['TRITON_REF']} |")
+          print(f"| Job status | {env.get('JOB_STATUS') or '?'} |")
+          print(f"| Duration | {env.get('DURATION') or '?'}s |")
+          print(f"| Pods | {env.get('TASK_PODS') or '?'} |")
+          print()
+
+          path = env["RESULT_XML"]
+          if not os.path.isfile(path):
+              print(f"**No lit result (build or pod failure)**: `{path}` not found.")
+              raise SystemExit(0)
+
+          total = failed = skipped = 0
+          failures = []
+          for tc in ET.parse(path).getroot().iter("testcase"):
+              total += 1
+              name = f"{tc.get('classname', '')}/{tc.get('name', '')}"
+              if tc.find("failure") is not None or tc.find("error") is not None:
+                  failed += 1
+                  failures.append(name)
+              elif tc.find("skipped") is not None:
+                  skipped += 1
+
+          print("| Total | Passed | Failed | Unsupported/Skipped |")
+          print("| --- | --- | --- | --- |")
+          print(f"| {total} | {total - failed - skipped} | {failed} | {skipped} |")
+          if failures:
+              print()
+              print("### Failing tests")
+              for name in failures:
+                  print(f"- `{name}`")
+          PYEOF
+
+      - name: Triton test summary
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          NAS_RESULT_DIR="/wl_nas/devops/irformatter-ci/${{ github.run_id }}/${{ github.run_attempt }}/triton"
+          if [ ! -f "$NAS_RESULT_DIR/test_result.xml" ]; then
+            echo "## Triton PPU Test Results" >> "$GITHUB_STEP_SUMMARY"
+            echo "**No Triton result (stage 1/2 failure, Triton build failure or pod failure)**: \`$NAS_RESULT_DIR/test_result.xml\` not found." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          python3 triton-for-sail/.github/ppu-ci/report_test_results.py \
+            --xml "$NAS_RESULT_DIR/test_result.xml" \
+            --env-info "$NAS_RESULT_DIR/env_info.json" \
+            --title "Triton PPU Test Results (${TRITON_REF} + new llvm-irformatter, ${BOARD_TYPE})" \
+            --docker-image "${CI_IMAGE}" \
+            --run-number "${{ github.run_number }}" \
+            --branch "${TRITON_REF}" \
+            --job-status "${{ steps.build.outputs.job_status }}" \
+            --duration "${{ steps.build.outputs.duration_seconds }}" \
+            --pods "${{ steps.build.outputs.task_pods }}" \
+            >> "$GITHUB_STEP_SUMMARY" || echo "::warning::Triton report generation failed with exit code $?"
+
+      - name: Upload llvm-irformatter
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: llvm-irformatter-${{ github.sha }}
+          path: /wl_nas/devops/irformatter-ci/${{ github.run_id }}/${{ github.run_attempt }}/llvm-irformatter
+          retention-days: 14
+          if-no-files-found: warn
